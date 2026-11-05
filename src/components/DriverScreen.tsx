@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import * as Linking from 'expo-linking';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -33,6 +34,10 @@ type NearbyRequest = {
 };
 
 const VEHICLES: Vehicle[] = ['Bike', 'Rickshaw', 'Car', 'Premium'];
+const DRIVER_REVIEW_MIGRATION_URL =
+  'https://github.com/Shahzaib-ai70/RideApp/blob/main/supabase/migrations/20261102000000_driver_document_review.sql';
+const SUPABASE_SQL_EDITOR_URL =
+  'https://supabase.com/dashboard/project/tdmzdootumjimthtpqmk/sql/new';
 const COLORS = {
   ink: '#172621',
   muted: '#75817B',
@@ -96,6 +101,7 @@ export default function DriverScreen() {
   const [application, setApplication] = useState<DriverApplicationSummary | null>(null);
   const [applicationLoading, setApplicationLoading] = useState(true);
   const [applicationError, setApplicationError] = useState('');
+  const [applicationSetupRequired, setApplicationSetupRequired] = useState(false);
   const [isReviewer, setIsReviewer] = useState(false);
   const [reviewQueueOpen, setReviewQueueOpen] = useState(false);
   const [lastPoint, setLastPoint] = useState<MapPoint | null>(null);
@@ -109,11 +115,13 @@ export default function DriverScreen() {
     if (!session || !client) {
       setApplication(null);
       setIsReviewer(false);
+      setApplicationSetupRequired(false);
       setApplicationLoading(false);
       return;
     }
 
     setApplicationError('');
+    setApplicationSetupRequired(false);
     try {
       const [applicationResult, reviewerResult] = await Promise.all([
         client.rpc('get_my_driver_application'),
@@ -132,17 +140,25 @@ export default function DriverScreen() {
       if (applicationLoadVersion.current !== loadVersion) return;
       setApplication(rows.length === 1 ? rows[0] : null);
       setIsReviewer(reviewerResult.data);
+      setApplicationSetupRequired(false);
       if (rows.length === 1 && rows[0].status === 'approved'
         && VEHICLES.includes(rows[0].vehicle_type as Vehicle)) {
         setVehicle(rows[0].vehicle_type as Vehicle);
       }
     } catch (loadError: unknown) {
       if (applicationLoadVersion.current !== loadVersion) return;
-      setApplicationError(
-        `Could not load driver verification. Run the new driver-document review migration in Supabase, then try again. ${
+      const errorCode = typeof loadError === 'object' && loadError !== null && 'code' in loadError
+        ? loadError.code
+        : null;
+      const setupRequired = errorCode === 'PGRST202'
+        || errorCode === '42P01'
+        || errorCode === '42883';
+      setApplicationSetupRequired(setupRequired);
+      setApplicationError(setupRequired
+        ? 'Driver verification is not set up in Supabase yet. Run the driver document review SQL migration once, then try again.'
+        : `Could not load driver verification. ${
           loadError instanceof Error ? loadError.message : 'Please try again.'
-        }`,
-      );
+        }`);
     } finally {
       if (applicationLoadVersion.current === loadVersion) setApplicationLoading(false);
     }
@@ -418,6 +434,39 @@ export default function DriverScreen() {
         <Text style={styles.eyebrow}>DRIVER MODE</Text>
         <Text style={styles.title}>Driver verification setup</Text>
         <Text style={styles.error}>{applicationError}</Text>
+        {applicationSetupRequired ? (
+          <View style={styles.setupCard}>
+            <Text style={styles.setupCopy}>
+              In Supabase, open the SQL Editor, paste and run the driver review migration, then return here and tap Try again. This is a one-time database setup; deploying the website does not run it.
+            </Text>
+            <Pressable
+              accessibilityRole="link"
+              onPress={() => {
+                void Linking.openURL(SUPABASE_SQL_EDITOR_URL).catch((error: unknown) => {
+                  setApplicationError(error instanceof Error
+                    ? `Could not open Supabase SQL Editor: ${error.message}`
+                    : 'Could not open Supabase SQL Editor.');
+                });
+              }}
+              style={styles.setupLinkButton}
+            >
+              <Text style={styles.setupLinkText}>Open Supabase SQL Editor</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="link"
+              onPress={() => {
+                void Linking.openURL(DRIVER_REVIEW_MIGRATION_URL).catch((error: unknown) => {
+                  setApplicationError(error instanceof Error
+                    ? `Could not open the driver migration: ${error.message}`
+                    : 'Could not open the driver migration.');
+                });
+              }}
+              style={styles.setupLinkButton}
+            >
+              <Text style={styles.setupLinkText}>Open driver review SQL</Text>
+            </Pressable>
+          </View>
+        ) : null}
         <Pressable onPress={() => void refreshApplication()} style={styles.acceptButton}>
           <Text style={styles.acceptText}>Try again</Text>
         </Pressable>
@@ -613,6 +662,10 @@ const styles = StyleSheet.create({
   reviewQueueText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
   loader: { flex: 1 },
   error: { padding: 11, borderRadius: 11, color: COLORS.red, backgroundColor: '#FBE9E8', fontSize: 11, lineHeight: 16 },
+  setupCard: { gap: 8, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  setupCopy: { color: COLORS.ink, fontSize: 12, lineHeight: 18 },
+  setupLinkButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#EFF5E7' },
+  setupLinkText: { color: COLORS.green, fontSize: 12, fontWeight: '800' },
   empty: { alignItems: 'center', padding: 22, borderRadius: 16, backgroundColor: COLORS.white },
   emptyTitle: { marginTop: 9, color: COLORS.ink, fontSize: 14, fontWeight: '800' },
   emptyCopy: { marginTop: 4, color: COLORS.muted, fontSize: 11, textAlign: 'center' },

@@ -90,6 +90,7 @@ The app includes a Driver tab, account sign-in, private driver-document uploads,
 1. Create a Supabase project and use its Project URL and publishable/anon client key (never the `service_role` secret). Put these in the ignored local `.env` file.
 2. In the Supabase SQL Editor, run `supabase/migrations/20261101000000_rider_driver_matching.sql` if it has not already been run.
 3. Then run `supabase/migrations/20261102000000_driver_document_review.sql`. It creates a private Storage bucket, application and reviewer tables, row-level security policies, review RPCs, and server-side enforcement that only approved drivers can go online or accept a ride.
+   These SQL files must be run in Supabase; pushing code to GitHub or deploying the website to the VPS does not apply database migrations. If the Driver tab says verification is not set up, run this migration in the Supabase SQL Editor, then return to the app and tap **Try again**.
 4. Enable email/password sign-up in Supabase Auth. If email confirmation is on, confirm the account from the email before signing in.
 5. To give yourself reviewer access, first create and confirm your Sawaari account. In Supabase **SQL Editor**, run the following after replacing the example email with the exact email for that account:
 
