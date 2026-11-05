@@ -5,6 +5,7 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -45,7 +46,7 @@ type SelectedDocument = {
   name: string;
   mimeType: string;
   size: number;
-  file: ExpoFile;
+  file?: ExpoFile;
   webFile?: File;
 };
 
@@ -126,8 +127,9 @@ export default function DriverVerification({
         throw new Error('Choose a PDF, JPG, JPEG, or PNG file.');
       }
 
-      const file = new ExpoFile(asset.uri);
-      const size = asset.size ?? asset.file?.size ?? 0;
+      const webFile = Platform.OS === 'web' ? asset.file : undefined;
+      const file = Platform.OS === 'web' ? undefined : new ExpoFile(asset.uri);
+      const size = asset.size ?? webFile?.size ?? 0;
       if (size <= 0 || size > MAX_FILE_BYTES) {
         throw new Error('The file size could not be checked or it exceeds 10 MB. Choose a smaller file.');
       }
@@ -137,8 +139,8 @@ export default function DriverVerification({
           name: asset.name,
           mimeType,
           size,
-          file,
-          ...(asset.file ? { webFile: asset.file } : {}),
+          ...(file ? { file } : {}),
+          ...(webFile ? { webFile } : {}),
         },
       }));
     } catch (pickError: unknown) {
@@ -185,11 +187,15 @@ export default function DriverVerification({
         const extension = getExtension(selected.name);
         const uniqueFolder = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
         const path = `${userId}/${uniqueFolder}/${document.kind}.${extension}`;
+        const fileBody = selected.webFile
+          ? await selected.webFile.arrayBuffer()
+          : selected.file
+            ? await selected.file.arrayBuffer()
+            : null;
+        if (!fileBody) throw new Error(`Could not read the selected ${document.label.toLowerCase()} file. Please choose it again.`);
         const { error: uploadError } = await supabase.storage.from(BUCKET).upload(
           path,
-          selected.webFile
-            ? await selected.webFile.arrayBuffer()
-            : await selected.file.arrayBuffer(),
+          fileBody,
           { contentType: selected.mimeType, upsert: false },
         );
         if (uploadError) throw uploadError;
