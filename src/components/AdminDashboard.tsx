@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
+import { withTimeout } from '../lib/withTimeout';
 
 const COLORS = {
   ink: '#172621',
@@ -129,19 +130,19 @@ export default function AdminDashboard({
     const version = ++refreshVersion.current;
     setRefreshing(true);
     try {
-      const [summaryResult, driversResult, ridesResult] = await Promise.all([
-        supabase.rpc('get_admin_dashboard_summary'),
-        supabase.rpc('get_admin_live_drivers'),
-        supabase.rpc('get_admin_live_rides'),
-      ]);
-      if (summaryResult.error) throw summaryResult.error;
-      if (driversResult.error) throw driversResult.error;
-      if (ridesResult.error) throw ridesResult.error;
-
-      const row = Array.isArray(summaryResult.data) && summaryResult.data.length === 1
-        ? summaryResult.data[0]
-        : null;
-      if (!isRecord(row)) throw new Error('The server returned an invalid admin summary.');
+      const result = await withTimeout(
+        supabase.rpc('get_admin_dashboard_data'),
+        10000,
+        'Dashboard refresh timed out. Check your connection and try again.',
+      );
+      if (result.error) throw result.error;
+      if (!isRecord(result.data)
+        || !isRecord(result.data.summary)
+        || !Array.isArray(result.data.drivers)
+        || !Array.isArray(result.data.rides)) {
+        throw new Error('The server returned invalid admin dashboard data.');
+      }
+      const row = result.data.summary;
       const counts = [
         row.pending_applications,
         row.approved_drivers,
@@ -153,10 +154,10 @@ export default function AdminDashboard({
       if (counts.some((count) => count === null)) {
         throw new Error('The server returned invalid admin dashboard counts.');
       }
-      if (!Array.isArray(driversResult.data) || !driversResult.data.every(isLiveDriver)) {
+      if (!result.data.drivers.every(isLiveDriver)) {
         throw new Error('The server returned an invalid online driver list.');
       }
-      if (!Array.isArray(ridesResult.data) || !ridesResult.data.every(isLiveRide)) {
+      if (!result.data.rides.every(isLiveRide)) {
         throw new Error('The server returned an invalid active ride list.');
       }
       if (!active.current || refreshVersion.current !== version) return;
@@ -169,8 +170,8 @@ export default function AdminDashboard({
         activeRides: counts[4] ?? 0,
         completedToday: counts[5] ?? 0,
       });
-      setDrivers(driversResult.data);
-      setRides(ridesResult.data);
+      setDrivers(result.data.drivers);
+      setRides(result.data.rides);
       setLastUpdated(new Date().toISOString());
       setError('');
     } catch (loadError: unknown) {

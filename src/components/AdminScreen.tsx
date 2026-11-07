@@ -14,6 +14,7 @@ import AdminDashboard from './AdminDashboard';
 import DriverReviewConsole from './DriverReviewConsole';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
+import { withTimeout } from '../lib/withTimeout';
 
 const COLORS = {
   ink: '#172621',
@@ -46,7 +47,11 @@ export default function AdminScreen() {
     setCheckingAccess(true);
     setError('');
     try {
-      const { data, error: permissionError } = await supabase.rpc('is_driver_reviewer');
+      const { data, error: permissionError } = await withTimeout(
+        supabase.rpc('is_driver_reviewer'),
+        10000,
+        'Admin access check timed out. Check your connection and try again.',
+      );
       if (permissionError) throw permissionError;
       if (typeof data !== 'boolean') {
         throw new Error('Supabase returned an invalid admin permission response.');
