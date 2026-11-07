@@ -91,8 +91,9 @@ The app includes a Driver tab, account sign-in, private driver-document uploads,
 2. In the Supabase SQL Editor, run `supabase/migrations/20261101000000_rider_driver_matching.sql` if it has not already been run.
 3. Then run `supabase/migrations/20261102000000_driver_document_review.sql`. It creates a private Storage bucket, application and reviewer tables, row-level security policies, review RPCs, and server-side enforcement that only approved drivers can go online or accept a ride.
    These SQL files must be run in Supabase; pushing code to GitHub or deploying the website to the VPS does not apply database migrations. If the Driver tab says verification is not set up, run this migration in the Supabase SQL Editor, then return to the app and tap **Try again**.
-4. Enable email/password sign-up in Supabase Auth. If email confirmation is on, confirm the account from the email before signing in.
-5. To give yourself reviewer access, first create and confirm your Sawaari account. In Supabase **SQL Editor**, run the following after replacing the example email with the exact email for that account:
+4. Run `supabase/migrations/20261107000000_admin_dashboard.sql` after the two migrations above. It adds reviewer-only dashboard RPCs and publishes a restricted change signal for Realtime updates; the signal does not include ride or driver location data. The app falls back to refreshing every 30 seconds if Realtime is disconnected.
+5. Enable email/password sign-up in Supabase Auth. If email confirmation is on, confirm the account from the email before signing in.
+6. To give yourself reviewer/admin access, first create and confirm your Sawaari account. In Supabase **SQL Editor**, run the following after replacing the example email with the exact email for that account:
 
    ```sql
    insert into public.driver_reviewers (user_id)
@@ -100,7 +101,7 @@ The app includes a Driver tab, account sign-in, private driver-document uploads,
    on conflict (user_id) do nothing;
    ```
 
-   The command must insert one row. Do not make every driver a reviewer. Sign out and back in to the app if you had it open; your Drive tab will show **Review driver applications**.
+   The command must insert one row. Do not make every driver a reviewer. Sign out and back in to the app if you had it open; the authorized account will see the **Open admin dashboard** and **Review driver applications** controls in Drive mode. Dashboard access uses the same restricted reviewer allowlist as private document review.
 6. A driver signs in, opens **Drive**, and submits their legal name, vehicle category/make/model/year, CNIC (front and back), driving licence (front and back), vehicle registration, and a vehicle photo. The CNIC and licence sides should be combined into one PDF or a clear image for each document type. Each PDF/JPG/PNG must be at most 10 MB.
 7. The driver sees **Application under review** while an authorized reviewer views the private files from the app's review queue and approves, requests changes, or rejects with feedback. The driver can resubmit after feedback. Only an approved application for the submitted vehicle category can go online.
 8. For matching, the approved driver chooses their verified vehicle category, allows location, and taps **Go online**. A signed-in rider on another device can send a request. Rider Trips and the driver's request list check for updates about every 10 seconds. Location sharing works only while the driver app is open.

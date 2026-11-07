@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import AccountPanel from './AccountPanel';
+import AdminDashboard from './AdminDashboard';
 import DriverReviewConsole from './DriverReviewConsole';
 import DriverVerification from './DriverVerification';
 import type { DriverApplicationStatus, DriverApplicationSummary } from './DriverVerification';
@@ -104,6 +105,8 @@ export default function DriverScreen() {
   const [applicationSetupRequired, setApplicationSetupRequired] = useState(false);
   const [isReviewer, setIsReviewer] = useState(false);
   const [reviewQueueOpen, setReviewQueueOpen] = useState(false);
+  const [adminDashboardOpen, setAdminDashboardOpen] = useState(false);
+  const [returnToAdminDashboard, setReturnToAdminDashboard] = useState(false);
   const [lastPoint, setLastPoint] = useState<MapPoint | null>(null);
   const watch = useRef<Location.LocationSubscription | null>(null);
   const mounted = useRef(true);
@@ -424,8 +427,29 @@ export default function DriverScreen() {
     return <ActivityIndicator color={COLORS.green} style={styles.loader} />;
   }
 
+  if (isReviewer && adminDashboardOpen) {
+    return (
+      <AdminDashboard
+        onClose={() => setAdminDashboardOpen(false)}
+        onOpenReviews={() => {
+          setAdminDashboardOpen(false);
+          setReturnToAdminDashboard(true);
+          setReviewQueueOpen(true);
+        }}
+      />
+    );
+  }
+
   if (isReviewer && reviewQueueOpen) {
-    return <DriverReviewConsole onClose={() => setReviewQueueOpen(false)} />;
+    return (
+      <DriverReviewConsole
+        onClose={() => {
+          setReviewQueueOpen(false);
+          setAdminDashboardOpen(returnToAdminDashboard);
+          setReturnToAdminDashboard(false);
+        }}
+      />
+    );
   }
 
   if (applicationError) {
@@ -471,9 +495,15 @@ export default function DriverScreen() {
           <Text style={styles.acceptText}>Try again</Text>
         </Pressable>
         {isReviewer ? (
-          <Pressable onPress={() => setReviewQueueOpen(true)} style={styles.vehicleButton}>
-            <Text style={styles.vehicleText}>Open review queue</Text>
-          </Pressable>
+          <>
+            <Pressable onPress={() => setAdminDashboardOpen(true)} style={styles.adminDashboardButton}>
+              <Ionicons name="grid-outline" size={17} color={COLORS.green} />
+              <Text style={styles.adminDashboardText}>Open admin dashboard</Text>
+            </Pressable>
+            <Pressable onPress={() => setReviewQueueOpen(true)} style={styles.vehicleButton}>
+              <Text style={styles.vehicleText}>Open review queue</Text>
+            </Pressable>
+          </>
         ) : null}
       </ScrollView>
     );
@@ -488,13 +518,23 @@ export default function DriverScreen() {
           Submit your vehicle details and documents. You can request rides after a reviewer approves them.
         </Text>
         {isReviewer ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setReviewQueueOpen(true)}
-            style={styles.acceptButton}
-          >
-            <Text style={styles.acceptText}>Open driver review queue</Text>
-          </Pressable>
+          <>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setAdminDashboardOpen(true)}
+              style={styles.adminDashboardButton}
+            >
+              <Ionicons name="grid-outline" size={17} color={COLORS.green} />
+              <Text style={styles.adminDashboardText}>Open admin dashboard</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setReviewQueueOpen(true)}
+              style={styles.acceptButton}
+            >
+              <Text style={styles.acceptText}>Open driver review queue</Text>
+            </Pressable>
+          </>
         ) : null}
         <DriverVerification
           application={application}
@@ -509,14 +549,24 @@ export default function DriverScreen() {
       <Text style={styles.eyebrow}>DRIVER MODE</Text>
       <Text style={styles.title}>Nearby requests</Text>
       {isReviewer ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setReviewQueueOpen(true)}
-          style={styles.reviewQueueButton}
-        >
-          <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.green} />
-          <Text style={styles.reviewQueueText}>Review driver applications</Text>
-        </Pressable>
+        <>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setAdminDashboardOpen(true)}
+            style={styles.adminDashboardButton}
+          >
+            <Ionicons name="grid-outline" size={17} color={COLORS.green} />
+            <Text style={styles.adminDashboardText}>Open admin dashboard</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setReviewQueueOpen(true)}
+            style={styles.reviewQueueButton}
+          >
+            <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.green} />
+            <Text style={styles.reviewQueueText}>Review driver applications</Text>
+          </Pressable>
+        </>
       ) : null}
       <Text style={styles.subtitle}>
         Stay online with location enabled to receive matching ride requests within 10 km.
@@ -660,6 +710,8 @@ const styles = StyleSheet.create({
   noticeText: { flex: 1, color: COLORS.ink, fontSize: 11, lineHeight: 17 },
   reviewQueueButton: { minHeight: 42, paddingHorizontal: 12, borderRadius: 11, backgroundColor: '#E7F3E2', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
   reviewQueueText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
+  adminDashboardButton: { minHeight: 42, paddingHorizontal: 12, borderRadius: 11, backgroundColor: '#E7F3E2', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  adminDashboardText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
   loader: { flex: 1 },
   error: { padding: 11, borderRadius: 11, color: COLORS.red, backgroundColor: '#FBE9E8', fontSize: 11, lineHeight: 16 },
   setupCard: { gap: 8, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
