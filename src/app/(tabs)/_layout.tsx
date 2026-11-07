@@ -1,13 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import { AuthProvider } from '../../lib/AuthContext';
 
 const GREEN = '#0E4E3D';
 const MUTED = '#75817B';
 
 export default function TabLayout() {
   return (
-    <AuthProvider>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -59,6 +57,5 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
-    </AuthProvider>
   );
 }
