@@ -9,8 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useAuth } from '../lib/AuthContext';
-import { supabase } from '../lib/supabase';
+import { adminApi } from '../lib/adminApi';
 import { withTimeout } from '../lib/withTimeout';
 
 const COLORS = {
@@ -107,7 +106,6 @@ export default function AdminDashboard({
   onClose: () => void;
   onOpenReviews: () => void;
 }) {
-  const { session } = useAuth();
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [drivers, setDrivers] = useState<LiveDriver[]>([]);
   const [rides, setRides] = useState<LiveRide[]>([]);
@@ -115,34 +113,26 @@ export default function AdminDashboard({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState('');
-  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [apiConnected, setApiConnected] = useState(false);
   const active = useRef(true);
   const refreshVersion = useRef(0);
 
   const refresh = useCallback(async () => {
-    if (!supabase || !session) {
-      setError('Sign in with an authorized admin account to open this dashboard.');
-      setLoading(false);
-      setRefreshing(false);
-      return;
-    }
-
     const version = ++refreshVersion.current;
     setRefreshing(true);
     try {
-      const result = await withTimeout(
-        supabase.rpc('get_admin_dashboard_data'),
+      const data = await withTimeout(
+        adminApi<unknown>('/api/admin/dashboard'),
         10000,
         'Dashboard refresh timed out. Check your connection and try again.',
       );
-      if (result.error) throw result.error;
-      if (!isRecord(result.data)
-        || !isRecord(result.data.summary)
-        || !Array.isArray(result.data.drivers)
-        || !Array.isArray(result.data.rides)) {
+      if (!isRecord(data)
+        || !isRecord(data.summary)
+        || !Array.isArray(data.drivers)
+        || !Array.isArray(data.rides)) {
         throw new Error('The server returned invalid admin dashboard data.');
       }
-      const row = result.data.summary;
+      const row = data.summary;
       const counts = [
         row.pending_applications,
         row.approved_drivers,
@@ -154,10 +144,10 @@ export default function AdminDashboard({
       if (counts.some((count) => count === null)) {
         throw new Error('The server returned invalid admin dashboard counts.');
       }
-      if (!result.data.drivers.every(isLiveDriver)) {
+      if (!data.drivers.every(isLiveDriver)) {
         throw new Error('The server returned an invalid online driver list.');
       }
-      if (!result.data.rides.every(isLiveRide)) {
+      if (!data.rides.every(isLiveRide)) {
         throw new Error('The server returned an invalid active ride list.');
       }
       if (!active.current || refreshVersion.current !== version) return;
@@ -170,12 +160,14 @@ export default function AdminDashboard({
         activeRides: counts[4] ?? 0,
         completedToday: counts[5] ?? 0,
       });
-      setDrivers(result.data.drivers);
-      setRides(result.data.rides);
+      setDrivers(data.drivers);
+      setRides(data.rides);
       setLastUpdated(new Date().toISOString());
+      setApiConnected(true);
       setError('');
     } catch (loadError: unknown) {
       if (!active.current || refreshVersion.current !== version) return;
+      setApiConnected(false);
       setError(loadError instanceof Error
         ? loadError.message
         : 'Could not load live admin dashboard data.');
@@ -185,49 +177,23 @@ export default function AdminDashboard({
         setRefreshing(false);
       }
     }
-  }, [session]);
+  }, []);
 
   useEffect(() => {
     active.current = true;
     void Promise.resolve().then(() => {
       if (active.current) void refresh();
     });
-    const client = supabase;
-    if (!client || !session) {
-      return () => {
-        active.current = false;
-        refreshVersion.current += 1;
-      };
-    }
-
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleRefresh = () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        if (active.current) void refresh();
-      }, 350);
-    };
-    const channel = client.channel(`sawaari-admin-${session.user.id}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'admin_dashboard_events',
-      }, scheduleRefresh)
-      .subscribe((status) => {
-        if (active.current) setRealtimeConnected(status === 'SUBSCRIBED');
-      });
     const fallbackTimer = setInterval(() => {
       if (active.current) void refresh();
-    }, 30000);
+    }, 10000);
 
     return () => {
       active.current = false;
       refreshVersion.current += 1;
-      if (refreshTimer) clearTimeout(refreshTimer);
       clearInterval(fallbackTimer);
-      void client.removeChannel(channel);
     };
-  }, [refresh, session]);
+  }, [refresh]);
 
   const metrics: { label: string; value: number; icon: keyof typeof Ionicons.glyphMap; accent?: boolean }[] = [
     { label: 'Waiting for review', value: summary.pendingApplications, icon: 'document-text-outline', accent: true },
@@ -273,8 +239,8 @@ export default function AdminDashboard({
               <Text style={styles.heroLabelText}>OPERATIONS OVERVIEW</Text>
             </View>
             <View style={styles.livePill}>
-              <View style={[styles.liveDot, realtimeConnected ? styles.liveDotOn : styles.liveDotOff]} />
-              <Text style={styles.liveText}>{realtimeConnected ? 'LIVE' : 'SYNCING'}</Text>
+              <View style={[styles.liveDot, apiConnected ? styles.liveDotOn : styles.liveDotOff]} />
+              <Text style={styles.liveText}>{apiConnected ? 'CONNECTED' : 'SYNCING'}</Text>
             </View>
           </View>
           <Text style={styles.title}>Your city, in motion.</Text>

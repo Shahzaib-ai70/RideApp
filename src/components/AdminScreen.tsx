@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,9 +12,7 @@ import {
 } from 'react-native';
 import AdminDashboard from './AdminDashboard';
 import DriverReviewConsole from './DriverReviewConsole';
-import { useAuth } from '../lib/AuthContext';
-import { supabase } from '../lib/supabase';
-import { withTimeout } from '../lib/withTimeout';
+import { adminApi } from '../lib/adminApi';
 
 const COLORS = {
   ink: '#172621',
@@ -28,34 +26,28 @@ const COLORS = {
 };
 
 const ADMIN_USERNAME = 'ShahzaibKS';
-const ADMIN_ACCOUNT_EMAIL = 'ms0489123@gmail.com';
 
 export default function AdminScreen() {
-  const { configured, loading: authLoading, session } = useAuth();
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
-  const [error, setError] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState('');
-  const checkVersion = useRef(0);
+  const [serviceUnavailable, setServiceUnavailable] = useState(false);
 
   const signIn = async () => {
-    if (!supabase) return;
     setSigningIn(true);
     setSignInError('');
     try {
-      if (username.trim().toLowerCase() !== ADMIN_USERNAME.toLowerCase()) {
-        throw new Error('Invalid admin username or password.');
-      }
-      const { error: signInFailure } = await supabase.auth.signInWithPassword({
-        email: ADMIN_ACCOUNT_EMAIL,
-        password,
+      await adminApi<{ authenticated: boolean }>('/api/admin/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
       });
-      if (signInFailure) throw signInFailure;
+      setIsAdmin(true);
       setPassword('');
+      setServiceUnavailable(false);
     } catch (submitError: unknown) {
       setSignInError(submitError instanceof Error
         ? submitError.message
@@ -66,77 +58,45 @@ export default function AdminScreen() {
   };
 
   const signOut = async () => {
-    if (!supabase) return;
-    setError('');
-    const { error: signOutError } = await supabase.auth.signOut();
-    if (signOutError) setError(signOutError.message);
+    try {
+      await adminApi<{ authenticated: boolean }>('/api/admin/logout', { method: 'POST' });
+      setIsAdmin(false);
+    } catch (signOutError: unknown) {
+      setSignInError(signOutError instanceof Error ? signOutError.message : 'Could not sign out.');
+    }
   };
 
   const checkAccess = useCallback(async () => {
-    const version = ++checkVersion.current;
-    if (!session || !supabase) {
-      setIsAdmin(false);
-      setError('');
-      setCheckingAccess(false);
-      return;
-    }
-
     setCheckingAccess(true);
-    setError('');
     try {
-      const { data, error: permissionError } = await withTimeout(
-        supabase.rpc('is_driver_reviewer'),
-        10000,
-        'Admin access check timed out. Check your connection and try again.',
-      );
-      if (permissionError) throw permissionError;
-      if (typeof data !== 'boolean') {
-        throw new Error('Supabase returned an invalid admin permission response.');
-      }
-      if (checkVersion.current !== version) return;
-      setIsAdmin(data);
+      const { authenticated } = await adminApi<{ authenticated: boolean }>('/api/admin/session');
+      setIsAdmin(authenticated);
+      setServiceUnavailable(false);
     } catch (accessError: unknown) {
-      if (checkVersion.current !== version) return;
-      setError(accessError instanceof Error
-        ? accessError.message
-        : 'Could not verify access to the admin panel.');
       setIsAdmin(false);
+      setServiceUnavailable(true);
+      setSignInError(accessError instanceof Error
+        ? accessError.message
+        : 'Could not connect to the admin service.');
     } finally {
-      if (checkVersion.current === version) setCheckingAccess(false);
+      setCheckingAccess(false);
     }
-  }, [session]);
+  }, []);
 
   useEffect(() => {
     void Promise.resolve().then(() => checkAccess());
-    return () => {
-      checkVersion.current += 1;
-    };
   }, [checkAccess]);
 
-  if (!configured) {
-    return (
-      <ScrollView contentContainerStyle={styles.screen}>
-        <View style={styles.authContent}>
-          <Header />
-          <Notice
-            title="Admin service is not configured"
-            message="Connect the app to Supabase before opening the admin panel."
-          />
-        </View>
-      </ScrollView>
-    );
-  }
-
-  if (authLoading || checkingAccess) {
+  if (checkingAccess) {
     return (
       <View style={styles.loadingScreen}>
         <ActivityIndicator size="large" color={COLORS.green} />
-        <Text style={styles.loadingText}>Checking admin access…</Text>
+        <Text style={styles.loadingText}>Connecting to admin service…</Text>
       </View>
     );
   }
 
-  if (!session) {
+  if (!isAdmin) {
     return (
       <ScrollView contentContainerStyle={styles.screen}>
         <View style={styles.authContent}>
@@ -199,7 +159,14 @@ export default function AdminScreen() {
                   />
                 </View>
               </View>
-              {signInError ? <Text style={styles.error}>{signInError}</Text> : null}
+              {serviceUnavailable ? (
+                <Notice
+                  title="Admin service is unavailable"
+                  message="The VPS admin API is not responding. Check that the admin service is installed and running on the VPS."
+                  error={signInError}
+                  onRetry={() => void checkAccess()}
+                />
+              ) : signInError ? <Text style={styles.error}>{signInError}</Text> : null}
               <Pressable
                 accessibilityRole="button"
                 disabled={signingIn || !username.trim() || !password}
@@ -226,36 +193,15 @@ export default function AdminScreen() {
     );
   }
 
-  if (!isAdmin) {
-    return (
-      <ScrollView contentContainerStyle={styles.screen}>
-        <Header />
-        <Notice
-          title="Admin access is not enabled for this account"
-          message="Sign in with the account added to the Supabase driver_reviewers allowlist. Creating an ordinary rider or driver account does not grant admin access."
-          error={error}
-          onRetry={error ? () => void checkAccess() : undefined}
-        />
-        <View style={styles.loginCard}>
-          <View style={styles.accessDeniedIcon}><Ionicons name="person-circle-outline" size={25} color={COLORS.red} /></View>
-          <Text style={styles.cardTitle}>Account not authorized</Text>
-          <Text style={styles.cardCopy}>Signed in as {session.user.email}. This account does not have admin permissions.</Text>
-          <Pressable accessibilityRole="button" onPress={() => void signOut()} style={styles.signOutButton}>
-            <Ionicons name="log-out-outline" size={16} color={COLORS.green} />
-            <Text style={styles.signOutText}>Sign out</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-    );
-  }
-
   if (showReviews) {
     return <DriverReviewConsole onClose={() => setShowReviews(false)} />;
   }
 
   return (
     <AdminDashboard
-      onClose={() => router.replace('/')}
+      onClose={() => {
+        void signOut().then(() => router.replace('/'));
+      }}
       onOpenReviews={() => setShowReviews(true)}
     />
   );
@@ -339,7 +285,6 @@ const styles = StyleSheet.create({
   signInText: { color: COLORS.white, fontSize: 12, fontWeight: '900' },
   formFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   formFooterText: { color: COLORS.muted, fontSize: 9 },
-  accessDeniedIcon: { width: 45, height: 45, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: '#FBE9E8' },
   notice: { width: '100%', maxWidth: 760, alignSelf: 'center', padding: 18, borderWidth: 1, borderColor: COLORS.line, borderRadius: 16, backgroundColor: COLORS.white, gap: 10 },
   noticeTitle: { color: COLORS.ink, fontSize: 15, fontWeight: '900' },
   error: { padding: 10, borderRadius: 9, color: COLORS.red, backgroundColor: '#FBE9E8', fontSize: 11, lineHeight: 16 },

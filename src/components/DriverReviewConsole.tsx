@@ -10,9 +10,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { supabase } from '../lib/supabase';
+import { adminApi } from '../lib/adminApi';
 
-const BUCKET = 'sawaari-driver-documents';
 const COLORS = {
   ink: '#172621',
   muted: '#75817B',
@@ -74,18 +73,16 @@ export default function DriverReviewConsole({ onClose }: { onClose: () => void }
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
-    if (!supabase) return;
     setError('');
-    const { data, error: loadError } = await supabase.rpc('get_driver_review_queue');
-    if (loadError) {
-      setError(loadError.message);
-      return;
+    try {
+      const data = await adminApi<unknown>('/api/admin/review-queue');
+      if (!Array.isArray(data) || !data.every(isReviewApplication)) {
+        throw new Error('The server returned an invalid application review list.');
+      }
+      setApplications(data);
+    } catch (loadError: unknown) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load driver applications.');
     }
-    if (!Array.isArray(data) || !data.every(isReviewApplication)) {
-      setError('The server returned an invalid application review list.');
-      return;
-    }
-    setApplications(data);
   }, []);
 
   useEffect(() => {
@@ -106,20 +103,18 @@ export default function DriverReviewConsole({ onClose }: { onClose: () => void }
   }, [refresh]);
 
   const openDocument = async (path: string) => {
-    if (!supabase) return;
     try {
-      const { data, error: linkError } = await supabase.storage
-        .from(BUCKET)
-        .createSignedUrl(path, 120);
-      if (linkError) throw linkError;
-      await Linking.openURL(data.signedUrl);
+      const result = await adminApi<{ url: string }>('/api/admin/document-url', {
+        method: 'POST',
+        body: JSON.stringify({ path }),
+      });
+      await Linking.openURL(result.url);
     } catch (openError: unknown) {
       setError(openError instanceof Error ? openError.message : 'Could not open this private document.');
     }
   };
 
   const review = async (applicationId: string, decision: 'approved' | 'needs_changes' | 'rejected') => {
-    if (!supabase) return;
     const note = notes[applicationId]?.trim() ?? '';
     if (decision !== 'approved' && note.length < 5) {
       setError('Add at least five characters of feedback before requesting changes or rejecting.');
@@ -128,12 +123,14 @@ export default function DriverReviewConsole({ onClose }: { onClose: () => void }
     setBusyId(applicationId);
     setError('');
     try {
-      const { error: reviewError } = await supabase.rpc('review_driver_application', {
-        p_application_id: applicationId,
-        p_decision: decision,
-        p_review_note: note,
+      await adminApi('/api/admin/review', {
+        method: 'POST',
+        body: JSON.stringify({
+          applicationId,
+          decision,
+          note,
+        }),
       });
-      if (reviewError) throw reviewError;
       await refresh();
     } catch (reviewError: unknown) {
       setError(reviewError instanceof Error ? reviewError.message : 'Could not update this review.');

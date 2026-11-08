@@ -91,18 +91,34 @@ The app includes a Driver tab, account sign-in, private driver-document uploads,
 2. In the Supabase SQL Editor, run `supabase/migrations/20261101000000_rider_driver_matching.sql` if it has not already been run.
 3. Then run `supabase/migrations/20261102000000_driver_document_review.sql`. It creates a private Storage bucket, application and reviewer tables, row-level security policies, review RPCs, and server-side enforcement that only approved drivers can go online or accept a ride.
    These SQL files must be run in Supabase; pushing code to GitHub or deploying the website to the VPS does not apply database migrations. If the Driver tab says verification is not set up, run this migration in the Supabase SQL Editor, then return to the app and tap **Try again**.
-4. Run `supabase/migrations/20261107000000_admin_dashboard.sql` after the two migrations above. It adds reviewer-only dashboard RPCs and publishes a restricted change signal for Realtime updates; the signal does not include ride or driver location data. The app falls back to refreshing every 30 seconds if Realtime is disconnected.
+4. Run `supabase/migrations/20261107000000_admin_dashboard.sql` after the two migrations above. It adds reviewer-only dashboard RPCs and publishes a restricted change signal for Realtime updates; the signal does not include ride or driver location data.
 5. Run `supabase/migrations/20261107010000_admin_dashboard_performance.sql`. It adds indexes and the single-request dashboard endpoint used by the faster admin panel. After deploying the website, open the separate admin page at `https://sawaari.online/admin`.
-6. Enable email/password sign-up in Supabase Auth. If email confirmation is on, confirm the account from the email before signing in.
-7. To give yourself reviewer/admin access, first create and confirm your Sawaari account. In Supabase **SQL Editor**, run the following after replacing the example email with the exact email for that account:
+6. Run `supabase/migrations/20261108010000_admin_vps_auth.sql`. It keeps the existing reviewer-only app functions and adds a separate service-role path for the VPS admin API. Apply this migration before starting that API.
+7. The admin login is separate from rider/driver accounts. On the VPS, configure the backend and Nginx once:
 
-   ```sql
-   insert into public.driver_reviewers (user_id)
-   select id from auth.users where email = 'your-reviewer-email@example.com'
-   on conflict (user_id) do nothing;
+   ```sh
+   cd /opt/sawaari-source
+   sudo node server/setup-admin-env.mjs
+   sudo cp deploy/sawaari-admin-api.service /etc/systemd/system/sawaari-admin-api.service
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now sawaari-admin-api
+   sudo nano /etc/nginx/sites-available/sawaari
    ```
 
-   The command must insert one row. Do not make every driver a reviewer. Sign out and back in to the app if you had it open. The authorized account can open the dedicated `/admin` page or use the **Open admin dashboard** control in Drive mode. Ordinary accounts are denied access. Dashboard access uses the same restricted reviewer allowlist as private document review.
+   In the HTTPS `server { ... }` block in Nginx, add:
+
+   ```nginx
+   location /api/admin/ {
+       proxy_pass http://127.0.0.1:3210/api/admin/;
+       proxy_http_version 1.1;
+       proxy_set_header Host $host;
+       proxy_set_header X-Real-IP $remote_addr;
+       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+       proxy_set_header X-Forwarded-Proto $scheme;
+   }
+   ```
+
+   Save Nginx, then run `sudo nginx -t && sudo systemctl reload nginx`. The setup script privately prompts for the admin username/password and Supabase project URL/service-role key; it stores only a password hash at `/etc/sawaari/admin.env`, with the service-role key kept server-side. The Supabase key is for the admin API to read/update app data, not for admin login. Never put it in the website `.env`, GitHub, chat, or client code. The VPS admin API uses an HttpOnly secure session cookie and rate-limits sign-in attempts. The admin dashboard refreshes its server data every 10 seconds.
 8. A driver signs in, opens **Drive**, and submits their legal name, vehicle category/make/model/year, CNIC (front and back), driving licence (front and back), vehicle registration, and a vehicle photo. The CNIC and licence sides should be combined into one PDF or a clear image for each document type. Each PDF/JPG/PNG must be at most 10 MB.
 9. The driver sees **Application under review** while an authorized reviewer views the private files from the app's review queue and approves, requests changes, or rejects with feedback. The driver can resubmit after feedback. Only an approved application for the submitted vehicle category can go online.
 10. For matching, the approved driver chooses their verified vehicle category, allows location, and taps **Go online**. A signed-in rider on another device can send a request. Rider Trips and the driver's request list check for updates about every 10 seconds. Location sharing works only while the driver app is open.
