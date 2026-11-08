@@ -1,61 +1,69 @@
-import type { Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { PropsWithChildren } from 'react';
-import { supabase, supabaseConfigured } from './supabase';
+import { apiRequest } from './api';
+import type { ApiUser } from './api';
+
+export type AppSession = {
+  user: ApiUser & { user_metadata: { display_name: string } };
+};
 
 type AuthContextValue = {
   configured: boolean;
   loading: boolean;
-  session: Session | null;
+  session: AppSession | null;
   authError: string;
+  refreshSession: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue>({
-  configured: false,
+  configured: true,
   loading: false,
   session: null,
   authError: '',
+  refreshSession: async () => {},
 });
 
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(supabaseConfigured);
+  const [session, setSession] = useState<AppSession | null>(null);
+  const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState('');
 
-  useEffect(() => {
-    if (!supabase) return undefined;
-    let active = true;
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (active) {
-        setSession(nextSession);
-        setLoading(false);
-        setAuthError('');
-      }
-    });
+  const refreshSession = async () => {
+    try {
+      const { user } = await apiRequest<{ user: ApiUser | null }>('/auth/session');
+      setSession(user ? { user: { ...user, user_metadata: { display_name: user.display_name } } } : null);
+      setAuthError('');
+    } catch (error: unknown) {
+      setAuthError(error instanceof Error ? error.message : 'Could not connect to Sawaari.');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    void supabase.auth.getSession()
-      .then(({ data, error }) => {
+  useEffect(() => {
+    let active = true;
+    void apiRequest<{ user: ApiUser | null }>('/auth/session')
+      .then(({ user }) => {
         if (!active) return;
-        if (error) throw error;
-        setSession(data.session);
+        setSession(user ? { user: { ...user, user_metadata: { display_name: user.display_name } } } : null);
         setAuthError('');
       })
       .catch((error: unknown) => {
-        if (!active) return;
-        setAuthError(error instanceof Error ? error.message : 'Could not restore your sign-in session.');
+        if (active) {
+          setAuthError(error instanceof Error ? error.message : 'Could not connect to Sawaari.');
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
       });
-
     return () => {
       active = false;
-      subscription.unsubscribe();
     };
   }, []);
 
   return (
-    <AuthContext.Provider value={{ configured: supabaseConfigured, loading, session, authError }}>
+    <AuthContext.Provider value={{ configured: true, loading, session, authError, refreshSession }}>
       {children}
     </AuthContext.Provider>
   );

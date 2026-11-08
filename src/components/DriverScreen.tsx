@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import * as Linking from 'expo-linking';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,12 +13,10 @@ import {
   View,
 } from 'react-native';
 import AccountPanel from './AccountPanel';
-import AdminDashboard from './AdminDashboard';
-import DriverReviewConsole from './DriverReviewConsole';
 import DriverVerification from './DriverVerification';
 import type { DriverApplicationStatus, DriverApplicationSummary } from './DriverVerification';
 import { useAuth } from '../lib/AuthContext';
-import { supabase } from '../lib/supabase';
+import { apiRequest } from '../lib/api';
 import type { MapPoint } from './ride-map.types';
 
 type Vehicle = 'Bike' | 'Rickshaw' | 'Car' | 'Premium';
@@ -35,10 +32,6 @@ type NearbyRequest = {
 };
 
 const VEHICLES: Vehicle[] = ['Bike', 'Rickshaw', 'Car', 'Premium'];
-const DRIVER_REVIEW_MIGRATION_URL =
-  'https://github.com/Shahzaib-ai70/RideApp/blob/main/supabase/migrations/20261102000000_driver_document_review.sql';
-const SUPABASE_SQL_EDITOR_URL =
-  'https://supabase.com/dashboard/project/tdmzdootumjimthtpqmk/sql/new';
 const COLORS = {
   ink: '#172621',
   muted: '#75817B',
@@ -102,11 +95,6 @@ export default function DriverScreen() {
   const [application, setApplication] = useState<DriverApplicationSummary | null>(null);
   const [applicationLoading, setApplicationLoading] = useState(true);
   const [applicationError, setApplicationError] = useState('');
-  const [applicationSetupRequired, setApplicationSetupRequired] = useState(false);
-  const [isReviewer, setIsReviewer] = useState(false);
-  const [reviewQueueOpen, setReviewQueueOpen] = useState(false);
-  const [adminDashboardOpen, setAdminDashboardOpen] = useState(false);
-  const [returnToAdminDashboard, setReturnToAdminDashboard] = useState(false);
   const [lastPoint, setLastPoint] = useState<MapPoint | null>(null);
   const watch = useRef<Location.LocationSubscription | null>(null);
   const mounted = useRef(true);
@@ -114,54 +102,29 @@ export default function DriverScreen() {
 
   const refreshApplication = useCallback(async () => {
     const loadVersion = ++applicationLoadVersion.current;
-    const client = supabase;
-    if (!session || !client) {
+    if (!session) {
       setApplication(null);
-      setIsReviewer(false);
-      setApplicationSetupRequired(false);
       setApplicationLoading(false);
       return;
     }
 
     setApplicationError('');
-    setApplicationSetupRequired(false);
     try {
-      const [applicationResult, reviewerResult] = await Promise.all([
-        client.rpc('get_my_driver_application'),
-        client.rpc('is_driver_reviewer'),
-      ]);
-      if (applicationResult.error) throw applicationResult.error;
-      if (reviewerResult.error) throw reviewerResult.error;
-      const rows = applicationResult.data;
-      if (!Array.isArray(rows) || rows.length > 1
-        || (rows.length === 1 && !isDriverApplication(rows[0]))) {
+      const { application: result } = await apiRequest<{ application: unknown }>('/driver/application');
+      if (result !== null && !isDriverApplication(result)) {
         throw new Error('The server returned an invalid driver application.');
       }
-      if (typeof reviewerResult.data !== 'boolean') {
-        throw new Error('The server returned an invalid reviewer permission.');
-      }
       if (applicationLoadVersion.current !== loadVersion) return;
-      setApplication(rows.length === 1 ? rows[0] : null);
-      setIsReviewer(reviewerResult.data);
-      setApplicationSetupRequired(false);
-      if (rows.length === 1 && rows[0].status === 'approved'
-        && VEHICLES.includes(rows[0].vehicle_type as Vehicle)) {
-        setVehicle(rows[0].vehicle_type as Vehicle);
+      setApplication(result as DriverApplicationSummary | null);
+      if (result && isDriverApplication(result) && result.status === 'approved'
+        && VEHICLES.includes(result.vehicle_type as Vehicle)) {
+        setVehicle(result.vehicle_type as Vehicle);
       }
     } catch (loadError: unknown) {
       if (applicationLoadVersion.current !== loadVersion) return;
-      const errorCode = typeof loadError === 'object' && loadError !== null && 'code' in loadError
-        ? loadError.code
-        : null;
-      const setupRequired = errorCode === 'PGRST202'
-        || errorCode === '42P01'
-        || errorCode === '42883';
-      setApplicationSetupRequired(setupRequired);
-      setApplicationError(setupRequired
-        ? 'Driver verification is not set up in Supabase yet. Run the driver document review SQL migration once, then try again.'
-        : `Could not load driver verification. ${
-          loadError instanceof Error ? loadError.message : 'Please try again.'
-        }`);
+      setApplicationError(`Could not load driver verification. ${
+        loadError instanceof Error ? loadError.message : 'Please try again.'
+      }`);
     } finally {
       if (applicationLoadVersion.current === loadVersion) setApplicationLoading(false);
     }
@@ -184,24 +147,21 @@ export default function DriverScreen() {
   }, [refreshApplication]);
 
   useEffect(() => {
-    const client = supabase;
-    if (!isOnline || !session || !client) return undefined;
+    if (!isOnline || !session) return undefined;
     let active = true;
     const fetchRequests = async () => {
-      const { data, error } = await client.rpc('get_nearby_ride_requests', {
-        p_radius_m: 10000,
-      });
-      if (!active) return;
-      if (error) {
-        setRequestError(error.message);
-        return;
+      try {
+        const data = await apiRequest<unknown>('/driver/requests');
+        if (!active) return;
+        if (!Array.isArray(data) || !data.every(isNearbyRequest)) {
+          setRequestError('The server returned an invalid nearby request list.');
+          return;
+        }
+        setRequests(data);
+        setRequestError('');
+      } catch (error: unknown) {
+        if (active) setRequestError(error instanceof Error ? error.message : 'Could not load nearby requests.');
       }
-      if (!Array.isArray(data) || !data.every(isNearbyRequest)) {
-        setRequestError('The server returned an invalid nearby request list.');
-        return;
-      }
-      setRequests(data);
-      setRequestError('');
     };
 
     void fetchRequests();
@@ -213,25 +173,23 @@ export default function DriverScreen() {
   }, [isOnline, session]);
 
   useEffect(() => {
-    const client = supabase;
-    if (!session || !client) return undefined;
+    if (!session) return undefined;
     let active = true;
-    void client.rpc('get_my_active_driver_ride')
-      .then(({ data, error }) => {
+    void apiRequest<{ ride: unknown }>('/driver/active-ride')
+      .then(({ ride }) => {
         if (!active) return;
-        if (error) {
-          setRequestError(error.message);
-          return;
-        }
-        if (Array.isArray(data) && data.length > 0) {
-          if (!isNearbyRequest(data[0])) {
+        if (ride) {
+          if (!isNearbyRequest(ride)) {
             setRequestError('The server returned an invalid active ride.');
             return;
           }
-          setActiveRide(data[0]);
+          setActiveRide(ride);
         } else {
           setActiveRide(null);
         }
+      })
+      .catch((error: unknown) => {
+        if (active) setRequestError(error instanceof Error ? error.message : 'Could not load your active ride.');
       });
     return () => {
       active = false;
@@ -245,19 +203,20 @@ export default function DriverScreen() {
   }, [application?.status, refreshApplication, session]);
 
   const setPresence = async (online: boolean, point: MapPoint, nextVehicle = vehicle) => {
-    if (!supabase) throw new Error('Supabase is not configured.');
-    const { error } = await supabase.rpc('set_driver_presence', {
-      p_display_name: displayName.trim(),
-      p_vehicle: nextVehicle,
-      p_is_online: online,
-      p_latitude: point.latitude,
-      p_longitude: point.longitude,
+    await apiRequest('/driver/presence', {
+      method: 'POST',
+      body: JSON.stringify({
+        display_name: displayName.trim(),
+        vehicle: nextVehicle,
+        is_online: online,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      }),
     });
-    if (error) throw error;
   };
 
   const toggleOnline = async () => {
-    if (!supabase || !session) return;
+    if (!session) return;
     if (!isOnline && application?.status !== 'approved') {
       showMessage(
         'Driver approval required',
@@ -327,7 +286,6 @@ export default function DriverScreen() {
   };
 
   const acceptRequest = async (request: NearbyRequest) => {
-    if (!supabase) return;
     const confirmed = Platform.OS === 'web'
       ? window.confirm(
         `Accept this ride request?\n\n${request.pickup_address} → ${request.destination_address}\nOffer: PKR ${request.offered_fare}`,
@@ -346,10 +304,10 @@ export default function DriverScreen() {
 
     setBusy(true);
     try {
-      const { error } = await supabase.rpc('accept_ride_request', {
-        p_request_id: request.request_id,
+      await apiRequest('/driver/accept', {
+        method: 'POST',
+        body: JSON.stringify({ request_id: request.request_id }),
       });
-      if (error) throw error;
       watch.current?.remove();
       watch.current = null;
       setIsOnline(false);
@@ -370,13 +328,13 @@ export default function DriverScreen() {
   };
 
   const completeRide = async () => {
-    if (!supabase || !activeRide) return;
+    if (!activeRide) return;
     setBusy(true);
     try {
-      const { error } = await supabase.rpc('complete_ride_request', {
-        p_request_id: activeRide.request_id,
+      await apiRequest('/driver/complete', {
+        method: 'POST',
+        body: JSON.stringify({ request_id: activeRide.request_id }),
       });
-      if (error) throw error;
       setActiveRide(null);
       showMessage('Ride completed', 'This ride was marked complete.');
     } catch (error: unknown) {
@@ -395,12 +353,12 @@ export default function DriverScreen() {
         <Text style={styles.eyebrow}>DRIVER MODE</Text>
         <Text style={styles.title}>Drive with Sawaari</Text>
         <Text style={styles.subtitle}>
-          Driver accounts, live availability, nearby requests, and ride acceptance connect through your Supabase project.
+          Driver accounts, live availability, nearby requests, and ride acceptance connect through Sawaari’s VPS service.
         </Text>
         <View style={styles.notice}>
           <Ionicons name="cloud-offline-outline" size={20} color={COLORS.orange} />
           <Text style={styles.noticeText}>
-            Backend not configured yet. Add the Supabase URL and publishable/anon key to your local .env, then run the SQL migration from the README.
+            VPS backend is not responding. Check that the Sawaari API and database are running on the server.
           </Text>
         </View>
         <AccountPanel />
@@ -427,84 +385,15 @@ export default function DriverScreen() {
     return <ActivityIndicator color={COLORS.green} style={styles.loader} />;
   }
 
-  if (isReviewer && adminDashboardOpen) {
-    return (
-      <AdminDashboard
-        onClose={() => setAdminDashboardOpen(false)}
-        onOpenReviews={() => {
-          setAdminDashboardOpen(false);
-          setReturnToAdminDashboard(true);
-          setReviewQueueOpen(true);
-        }}
-      />
-    );
-  }
-
-  if (isReviewer && reviewQueueOpen) {
-    return (
-      <DriverReviewConsole
-        onClose={() => {
-          setReviewQueueOpen(false);
-          setAdminDashboardOpen(returnToAdminDashboard);
-          setReturnToAdminDashboard(false);
-        }}
-      />
-    );
-  }
-
   if (applicationError) {
     return (
       <ScrollView contentContainerStyle={styles.screen}>
         <Text style={styles.eyebrow}>DRIVER MODE</Text>
         <Text style={styles.title}>Driver verification setup</Text>
         <Text style={styles.error}>{applicationError}</Text>
-        {applicationSetupRequired ? (
-          <View style={styles.setupCard}>
-            <Text style={styles.setupCopy}>
-              In Supabase, open the SQL Editor, paste and run the driver review migration, then return here and tap Try again. This is a one-time database setup; deploying the website does not run it.
-            </Text>
-            <Pressable
-              accessibilityRole="link"
-              onPress={() => {
-                void Linking.openURL(SUPABASE_SQL_EDITOR_URL).catch((error: unknown) => {
-                  setApplicationError(error instanceof Error
-                    ? `Could not open Supabase SQL Editor: ${error.message}`
-                    : 'Could not open Supabase SQL Editor.');
-                });
-              }}
-              style={styles.setupLinkButton}
-            >
-              <Text style={styles.setupLinkText}>Open Supabase SQL Editor</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="link"
-              onPress={() => {
-                void Linking.openURL(DRIVER_REVIEW_MIGRATION_URL).catch((error: unknown) => {
-                  setApplicationError(error instanceof Error
-                    ? `Could not open the driver migration: ${error.message}`
-                    : 'Could not open the driver migration.');
-                });
-              }}
-              style={styles.setupLinkButton}
-            >
-              <Text style={styles.setupLinkText}>Open driver review SQL</Text>
-            </Pressable>
-          </View>
-        ) : null}
         <Pressable onPress={() => void refreshApplication()} style={styles.acceptButton}>
           <Text style={styles.acceptText}>Try again</Text>
         </Pressable>
-        {isReviewer ? (
-          <>
-            <Pressable onPress={() => setAdminDashboardOpen(true)} style={styles.adminDashboardButton}>
-              <Ionicons name="grid-outline" size={17} color={COLORS.green} />
-              <Text style={styles.adminDashboardText}>Open admin dashboard</Text>
-            </Pressable>
-            <Pressable onPress={() => setReviewQueueOpen(true)} style={styles.vehicleButton}>
-              <Text style={styles.vehicleText}>Open review queue</Text>
-            </Pressable>
-          </>
-        ) : null}
       </ScrollView>
     );
   }
@@ -517,25 +406,6 @@ export default function DriverScreen() {
         <Text style={styles.subtitle}>
           Submit your vehicle details and documents. You can request rides after a reviewer approves them.
         </Text>
-        {isReviewer ? (
-          <>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setAdminDashboardOpen(true)}
-              style={styles.adminDashboardButton}
-            >
-              <Ionicons name="grid-outline" size={17} color={COLORS.green} />
-              <Text style={styles.adminDashboardText}>Open admin dashboard</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setReviewQueueOpen(true)}
-              style={styles.acceptButton}
-            >
-              <Text style={styles.acceptText}>Open driver review queue</Text>
-            </Pressable>
-          </>
-        ) : null}
         <DriverVerification
           application={application}
           onSubmitted={() => void refreshApplication()}
@@ -548,26 +418,6 @@ export default function DriverScreen() {
     <ScrollView contentContainerStyle={styles.screen}>
       <Text style={styles.eyebrow}>DRIVER MODE</Text>
       <Text style={styles.title}>Nearby requests</Text>
-      {isReviewer ? (
-        <>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setAdminDashboardOpen(true)}
-            style={styles.adminDashboardButton}
-          >
-            <Ionicons name="grid-outline" size={17} color={COLORS.green} />
-            <Text style={styles.adminDashboardText}>Open admin dashboard</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setReviewQueueOpen(true)}
-            style={styles.reviewQueueButton}
-          >
-            <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.green} />
-            <Text style={styles.reviewQueueText}>Review driver applications</Text>
-          </Pressable>
-        </>
-      ) : null}
       <Text style={styles.subtitle}>
         Stay online with location enabled to receive matching ride requests within 10 km.
       </Text>
@@ -708,16 +558,8 @@ const styles = StyleSheet.create({
   statusText: { marginTop: 9, color: COLORS.muted, fontSize: 10, textAlign: 'center' },
   notice: { padding: 13, borderRadius: 13, backgroundColor: '#FFF2E5', flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
   noticeText: { flex: 1, color: COLORS.ink, fontSize: 11, lineHeight: 17 },
-  reviewQueueButton: { minHeight: 42, paddingHorizontal: 12, borderRadius: 11, backgroundColor: '#E7F3E2', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
-  reviewQueueText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
-  adminDashboardButton: { minHeight: 42, paddingHorizontal: 12, borderRadius: 11, backgroundColor: '#E7F3E2', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
-  adminDashboardText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
   loader: { flex: 1 },
   error: { padding: 11, borderRadius: 11, color: COLORS.red, backgroundColor: '#FBE9E8', fontSize: 11, lineHeight: 16 },
-  setupCard: { gap: 8, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
-  setupCopy: { color: COLORS.ink, fontSize: 12, lineHeight: 18 },
-  setupLinkButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#EFF5E7' },
-  setupLinkText: { color: COLORS.green, fontSize: 12, fontWeight: '800' },
   empty: { alignItems: 'center', padding: 22, borderRadius: 16, backgroundColor: COLORS.white },
   emptyTitle: { marginTop: 9, color: COLORS.ink, fontSize: 14, fontWeight: '800' },
   emptyCopy: { marginTop: 4, color: COLORS.muted, fontSize: 11, textAlign: 'center' },

@@ -2,14 +2,13 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useAuth } from '../lib/AuthContext';
-import { supabase } from '../lib/supabase';
+import { apiRequest, saveAccessToken } from '../lib/api';
 
 const GREEN = '#0E4E3D';
 const INK = '#172621';
@@ -18,7 +17,7 @@ const LINE = '#E8EBE4';
 const WHITE = '#FFFFFF';
 
 export default function AccountPanel() {
-  const { configured, session, authError } = useAuth();
+  const { session, authError, refreshSession } = useAuth();
   const [creating, setCreating] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -26,47 +25,73 @@ export default function AccountPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('');
 
   const submit = async () => {
-    if (!supabase) return;
     setBusy(true);
     setError('');
     setNotice('');
     try {
-      const result = creating
-        ? await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            data: { display_name: displayName.trim() },
-            ...(Platform.OS === 'web' ? { emailRedirectTo: window.location.origin } : {}),
-          },
-        })
-        : await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (result.error) throw result.error;
-      if (result.data.session) {
-        setNotice(creating ? 'Account created and signed in.' : 'You are signed in.');
+      if (creating) {
+        await apiRequest('/auth/signup', {
+          method: 'POST',
+          auth: false,
+          body: JSON.stringify({
+            email: email.trim(),
+            password,
+            display_name: displayName.trim(),
+          }),
+        });
+        setPendingConfirmationEmail(email.trim());
+        setNotice('We sent a confirmation email. Open its link, then press Confirm account on the Sawaari page.');
       } else {
-        setNotice(
-          creating
-            ? 'Check your email, click the confirmation link, then return to Sawaari and sign in. If the link cannot open localhost, return to this app.'
-            : 'Check your email to confirm the new account, then sign in.',
-        );
+        const result = await apiRequest<{ token: string }>('/auth/login', {
+          method: 'POST',
+          auth: false,
+          body: JSON.stringify({ email: email.trim(), password }),
+        });
+        await saveAccessToken(result.token);
+        await refreshSession();
+        setPendingConfirmationEmail('');
+        setNotice('You are signed in.');
       }
     } catch (submitError: unknown) {
+      if (creating || (submitError instanceof Error
+        && submitError.message.toLowerCase().includes('confirm your email'))) {
+        setPendingConfirmationEmail(email.trim());
+      }
       setError(submitError instanceof Error ? submitError.message : 'Could not sign in.');
     } finally {
       setBusy(false);
     }
   };
 
+  const resendConfirmation = async () => {
+    if (!pendingConfirmationEmail) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      await apiRequest('/auth/resend-confirmation', {
+        method: 'POST',
+        auth: false,
+        body: JSON.stringify({ email: pendingConfirmationEmail }),
+      });
+      setNotice('A new confirmation email was requested. Check your inbox and spam folder.');
+    } catch (resendError: unknown) {
+      setError(resendError instanceof Error ? resendError.message : 'Could not resend the confirmation email.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const signOut = async () => {
-    if (!supabase) return;
     setBusy(true);
     setError('');
     try {
-      const { error: signOutError } = await supabase.auth.signOut();
-      if (signOutError) throw signOutError;
+      await apiRequest('/auth/logout', { method: 'POST' });
+      await saveAccessToken(null);
+      await refreshSession();
       setNotice('You are signed out.');
     } catch (signOutError: unknown) {
       setError(signOutError instanceof Error ? signOutError.message : 'Could not sign out.');
@@ -74,17 +99,6 @@ export default function AccountPanel() {
       setBusy(false);
     }
   };
-
-  if (!configured) {
-    return (
-      <View style={styles.card}>
-        <Text style={styles.title}>Connect your Supabase project</Text>
-        <Text style={styles.copy}>
-          Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to your local .env, then restart Expo. Setup instructions are in the README.
-        </Text>
-      </View>
-    );
-  }
 
   if (session) {
     return (
@@ -151,6 +165,7 @@ export default function AccountPanel() {
           setCreating(!creating);
           setError('');
           setNotice('');
+          setPendingConfirmationEmail('');
         }}
         style={styles.linkButton}
       >
@@ -158,6 +173,16 @@ export default function AccountPanel() {
           {creating ? 'Already have an account? Sign in' : 'New to Sawaari? Create an account'}
         </Text>
       </Pressable>
+      {pendingConfirmationEmail ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => void resendConfirmation()}
+          style={styles.linkButton}
+        >
+          <Text style={styles.linkText}>Resend confirmation email</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

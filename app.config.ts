@@ -31,6 +31,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       'expo-router',
+      'expo-secure-store',
       ...(config.plugins ?? []),
       [
         'expo-location',

@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { supabase } from '../lib/supabase';
+import { apiRequest } from '../lib/api';
 
 const COLORS = {
   ink: '#172621',
@@ -24,7 +24,6 @@ const COLORS = {
   red: '#C34242',
   orange: '#EF9B54',
 };
-const BUCKET = 'sawaari-driver-documents';
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'] as const;
 
@@ -70,15 +69,6 @@ function mimeFromExtension(extension: string) {
   return '';
 }
 
-function storedDocumentPaths(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((document: unknown) => {
-    if (typeof document !== 'object' || document === null) return [];
-    const path = (document as Record<string, unknown>).path;
-    return typeof path === 'string' ? [path] : [];
-  });
-}
-
 export default function DriverVerification({
   application,
   onSubmitted,
@@ -106,7 +96,6 @@ export default function DriverVerification({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
-  const [cleanupWarning, setCleanupWarning] = useState('');
 
   const pickDocument = async (kind: DocumentKind) => {
     setError('');
@@ -149,10 +138,6 @@ export default function DriverVerification({
   };
 
   const submit = async () => {
-    if (!supabase) {
-      setError('Supabase is not configured.');
-      return;
-    }
     if (fullName.trim().length < 2 || vehicleMake.trim().length < 1
       || vehicleModel.trim().length < 1 || !/^\d{4}$/.test(vehicleYear)
       || Number(vehicleYear) < 1980 || Number(vehicleYear) > new Date().getFullYear() + 1) {
@@ -167,85 +152,38 @@ export default function DriverVerification({
 
     setBusy(true);
     setError('');
-    setCleanupWarning('');
-    const uploadedPaths: string[] = [];
     try {
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      if (!userId) throw new Error('Sign in again before submitting your application.');
-
-      const documentRows: {
-        doc_type: DocumentKind;
-        path: string;
-        content_type: string;
-        size: number;
-      }[] = [];
-
+      const formData = new FormData();
+      formData.append('full_name', fullName.trim());
+      formData.append('vehicle_type', vehicleType);
+      formData.append('vehicle_make', vehicleMake.trim());
+      formData.append('vehicle_model', vehicleModel.trim());
+      formData.append('vehicle_year', String(Number(vehicleYear)));
       for (const [index, document] of DOCUMENTS.entries()) {
         const selected = documents[document.kind];
         if (!selected) throw new Error(`Please add: ${document.label}.`);
-        setProgress(`Uploading document ${index + 1} of ${DOCUMENTS.length}...`);
-        const extension = getExtension(selected.name);
-        const uniqueFolder = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-        const path = `${userId}/${uniqueFolder}/${document.kind}.${extension}`;
-        const fileBody = selected.webFile
-          ? await selected.webFile.arrayBuffer()
-          : selected.file
-            ? await selected.file.arrayBuffer()
-            : null;
-        if (!fileBody) throw new Error(`Could not read the selected ${document.label.toLowerCase()} file. Please choose it again.`);
-        const { error: uploadError } = await supabase.storage.from(BUCKET).upload(
-          path,
-          fileBody,
-          { contentType: selected.mimeType, upsert: false },
-        );
-        if (uploadError) throw uploadError;
-        uploadedPaths.push(path);
-        documentRows.push({
-          doc_type: document.kind,
-          path,
-          content_type: selected.mimeType,
-          size: selected.size,
-        });
+        const file = selected.webFile ?? selected.file;
+        if (!file) throw new Error(`Could not read the selected ${document.label.toLowerCase()} file. Please choose it again.`);
+        setProgress(`Preparing document ${index + 1} of ${DOCUMENTS.length}...`);
+        const content = await file.arrayBuffer();
+        formData.append(document.kind, new Blob([content], { type: selected.mimeType }), selected.name);
       }
 
-      setProgress('Submitting for review...');
-      const { data, error: submitError } = await supabase.rpc('submit_driver_application', {
-        p_full_name: fullName.trim(),
-        p_vehicle_type: vehicleType,
-        p_vehicle_make: vehicleMake.trim(),
-        p_vehicle_model: vehicleModel.trim(),
-        p_vehicle_year: Number(vehicleYear),
-        p_documents: documentRows,
+      setProgress('Uploading documents securely and submitting for review...');
+      const result = await apiRequest<{ status: string }>('/driver/application', {
+        method: 'POST',
+        body: formData,
       });
-      if (submitError) throw submitError;
-      if (!Array.isArray(data) || data.length !== 1 || data[0].status !== 'pending') {
+      if (result.status !== 'pending') {
         throw new Error('The server did not confirm that your application entered review.');
       }
 
-      const previousPaths = storedDocumentPaths(application?.documents);
-      if (previousPaths.length > 0) {
-        try {
-          const { error: cleanupError } = await supabase.storage.from(BUCKET).remove(previousPaths);
-          if (cleanupError) throw cleanupError;
-        } catch {
-          setCleanupWarning(
-            'Your new application is submitted. Older private document files could not be removed automatically; remove them from Supabase Storage when convenient.',
-          );
-        }
-      }
       setDocuments({ cnic: null, driving_license: null, vehicle_registration: null, vehicle_photo: null });
       setProgress('');
       onSubmitted();
     } catch (submitError: unknown) {
       const detail = submitError instanceof Error ? submitError.message : 'Please try again.';
-      if (uploadedPaths.length > 0 && supabase) {
-        const { error: cleanupError } = await supabase.storage.from(BUCKET).remove(uploadedPaths);
-        setError(cleanupError
-          ? `${detail} Some uploaded files remain private in your account and may be removed from Supabase Storage.`
-          : detail);
-      } else {
-        setError(detail);
-      }
+      setError(detail);
     } finally {
       setBusy(false);
       setProgress('');
@@ -364,7 +302,6 @@ export default function DriverVerification({
         PDF, JPG, or PNG · up to 10 MB each. Do not upload documents belonging to anyone else. Documents are private and are not displayed to riders.
       </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {cleanupWarning ? <Text style={styles.privacy}>{cleanupWarning}</Text> : null}
       <Pressable
         accessibilityRole="button"
         disabled={busy}

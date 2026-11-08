@@ -1,165 +1,138 @@
 # Sawaari
 
-Sawaari is an Expo / React Native ride-booking app foundation for Pakistan. The current build is a rider-side mobile MVP, not a live ride-hailing service.
+Sawaari is an Expo / React Native ride-booking app foundation for Pakistan. The mobile app, website, and admin panel use a Node.js API on the VPS and PostgreSQL. Supabase is not used by the running application. The PostgreSQL database starts empty; the existing Supabase project and its data are left untouched as a backup and are not imported.
 
-## Run the local web preview
+The old `supabase/migrations/` SQL files are retained only as legacy reference. Do not apply them for this VPS backend; `server/schema.sql` is the current PostgreSQL schema.
 
-1. In this folder, run `npm install`.
-2. Run `npm run web`.
-3. Open the localhost URL printed by Expo (usually `http://localhost:8081`).
+## Local development
 
-The web preview works without an API key: it shows OpenStreetMap road tiles, searches Photon place data, and requests a driving route and distance from the public OSRM demo service. Search Pakistan by default or switch to Worldwide. Both selected places appear on the map; after both are selected, the road route is drawn and its distance is used for an editable fare suggestion. Browser geolocation requires permission. These public community/demo services are suitable for trying the local preview, but are best-effort, have usage limits/no production SLA, and should not be used for a commercial ride service at scale. OpenStreetMap requires visible attribution and its public tile server has a usage policy; choose a suitable commercial map provider before a production launch.
+1. Install Node.js 22 and run `npm ci`.
+2. Copy `.env.example` to `.env`. Set `EXPO_PUBLIC_API_URL` to the API's public `/api` URL for native app builds, and add optional Google Maps keys if configured.
+3. Run `npm run web` for the local web preview or `npx expo start` for Expo Go.
 
-To use Google Maps instead, configure the optional restricted web key as described below. Once configured, Google Maps provides the web map, Places autocomplete, and driving route. The app does not require Google keys to make the local web preview usable.
+Web builds use the same-origin `/api` route. Native builds call `EXPO_PUBLIC_API_URL` (defaults to `https://sawaari.online/api`). A running VPS API and PostgreSQL database are required for user accounts, email verification, driver documents, and shared rides. The preview does not create fake accounts or drivers.
 
-Starter fare assumptions are Bike PKR 50 + 30/km, Rickshaw PKR 80 + 45/km, Car PKR 120 + 55/km, and Premium PKR 200 + 80/km, rounded up to the next PKR 10. These are configurable examples, not current market rates or a live operator quote. Native place search still uses the Photon geocoder; native fares are explicitly labeled direct-distance estimates. Without Supabase configuration, ride requests are saved locally and are not broadcast. With Supabase configured, signed-in riders can send a request and search for online drivers; the app still does not provide live turn-by-turn navigation.
+The map uses Photon, OpenStreetMap, and OSRM public demo services unless Google Maps is configured. Those community/demo services have usage limits and no production SLA; choose suitable commercial services before a production launch. Starter fare values are examples, not current market rates or live quotes.
 
-## Prepare a web build for a VPS
+## VPS backend setup
 
-This project includes a GitHub Actions workflow at `.github/workflows/deploy-vps.yml`. After the one-time setup below, every push to the repository's `master` or `main` branch builds the web app, runs typecheck and lint, and securely uploads `dist` to the VPS. You can also start a deployment from GitHub **Actions → Build and deploy Sawaari website → Run workflow**. This deploys only the static website; it does not change the mobile apps or replace Supabase.
+The API uses PostgreSQL, Hostinger SMTP, private files on the VPS, a separate admin password, and rate-limited database-backed user sessions. Apply these steps on the VPS before deploying the new website, so the app's API routes are ready when the website changes.
 
-### One-time VPS and domain setup
+### 1. Install prerequisites and PostgreSQL
 
-1. Purchase `sawaari.online`, then add DNS A records for `@` and `www` pointing to the VPS public IPv4 address. DNS must resolve to the VPS before requesting an HTTPS certificate.
-2. Connect to Ubuntu 22.04 over SSH as a sudo-capable account. Install Nginx and rsync:
+On Ubuntu, install Node.js 22, PostgreSQL, Nginx, and rsync. Create a dedicated PostgreSQL database and user. For a local PostgreSQL install:
 
-   ```sh
-   sudo apt update
-   sudo apt install -y nginx rsync
-   ```
-
-3. Create a dedicated deploy account (replace `sawaari-deploy` only if you choose a different username), allow Nginx to read its files, and prepare the upload directory:
-
-   ```sh
-   sudo adduser --disabled-password --gecos "" sawaari-deploy
-   sudo usermod -aG www-data sawaari-deploy
-   sudo mkdir -p /var/www/sawaari/dist
-   sudo chown -R sawaari-deploy:www-data /var/www/sawaari
-   sudo find /var/www/sawaari -type d -exec chmod 755 {} \;
-   ```
-
-   On your computer, generate a dedicated key pair with `ssh-keygen -t ed25519 -C "github-actions-sawaari"`. Add the **public** key (the `.pub` file) as a single line in `/home/sawaari-deploy/.ssh/authorized_keys` and confirm you can log in with it before configuring GitHub. Put only the matching **private** key in the GitHub secret; never commit either key. Restrict SSH access in your VPS firewall to trusted IPs when practical.
-4. Copy `deploy/nginx.sawaari.conf.example` to `/etc/nginx/sites-available/sawaari`, keeping the configured `sawaari.online` domain and `/var/www/sawaari/dist` root. Enable it and check Nginx:
-
-   ```sh
-   sudo ln -s /etc/nginx/sites-available/sawaari /etc/nginx/sites-enabled/sawaari
-   sudo nginx -t
-   sudo systemctl reload nginx
-   ```
-
-5. After DNS points to the VPS, install the HTTPS certificate:
-
-   ```sh
-   sudo apt install -y certbot python3-certbot-nginx
-   sudo certbot --nginx -d sawaari.online -d www.sawaari.online
-   ```
-
-   Allow inbound web traffic (ports 80 and 443) in the VPS firewall/provider panel. Verify `https://sawaari.online` loads over HTTPS.
-
-### Add GitHub Actions secrets
-
-In the GitHub repository, open **Settings → Secrets and variables → Actions → New repository secret**. Add the following. Do not put these in source files or commit `.env`.
-
-| Secret name | Value |
-|---|---|
-| `VPS_HOST` | VPS public IPv4 address (or SSH hostname) |
-| `VPS_USER` | `sawaari-deploy` |
-| `VPS_SSH_PRIVATE_KEY` | Full private SSH key matching the public key installed for the deploy account |
-| `VPS_KNOWN_HOSTS` | Verified SSH host-key line for the VPS |
-| `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase publishable/anon client key only |
-| `EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY` | Optional restricted Google Maps web key; omit or leave unset to use the current OpenStreetMap web map |
-| `VPS_PORT` | Optional SSH port; leave unset for port `22` |
-
-To obtain `VPS_KNOWN_HOSTS`, run `ssh-keyscan -t ed25519 -H <your-vps-ip> > sawaari-vps-known-hosts` on your computer, check its fingerprint with `ssh-keygen -lf sawaari-vps-known-hosts`, compare it with the fingerprint shown by your VPS provider, then paste the file contents as the secret. Use the same host/IP in `VPS_HOST` and host-key lookup. Do not trust an unverified SSH host key. Never add a Supabase `service_role` secret to GitHub for this client-side website.
-
-### Deploy from GitHub
-
-1. Upload/push this repository to GitHub, including `.github/workflows/deploy-vps.yml`. The workflow deploys pushes to either `master` or `main`; if you use another branch name, add it under `on.push.branches` in the workflow.
-2. Confirm all required GitHub secrets above are set. Push a commit to `master` or `main`; GitHub **Actions** will show the build, typecheck, lint, and VPS upload. A missing secret or failed check stops deployment instead of publishing a broken build.
-3. After the workflow succeeds, open `https://sawaari.online` and test the home page and direct refreshes on `/drive`, `/trips`, and `/profile`.
-4. In Supabase **Authentication → URL Configuration**, set the production **Site URL** to `https://sawaari.online` and add `https://sawaari.online/**` to **Redirect URLs**. Add `https://www.sawaari.online/**` too if users will use the `www` address. Confirm the required SQL migrations are applied before testing sign-up, document submission, or driver matching.
-5. Test sign-in, map, and storage with test accounts and sample documents. Do not use real identity documents or real passenger trips until privacy, legal, safety, and operational procedures are ready.
-
-The Supabase publishable key and any `EXPO_PUBLIC_*` values are included in browser code and are not secrets. Supabase row-level security and storage policies must protect data. The current public Photon, OSRM, and OpenStreetMap services have no production SLA; deploying the website does not make them suitable for commercial scale or turn this MVP into a production-ready ride service.
-
-## Driver document review and ride matching
-
-The app includes a Driver tab, account sign-in, private driver-document uploads, reviewer approval, online driver location updates, nearby request discovery, atomic ride acceptance, and rider-side nearby-driver status.
-
-1. Create a Supabase project and use its Project URL and publishable/anon client key (never the `service_role` secret). Put these in the ignored local `.env` file.
-2. In the Supabase SQL Editor, run `supabase/migrations/20261101000000_rider_driver_matching.sql` if it has not already been run.
-3. Then run `supabase/migrations/20261102000000_driver_document_review.sql`. It creates a private Storage bucket, application and reviewer tables, row-level security policies, review RPCs, and server-side enforcement that only approved drivers can go online or accept a ride.
-   These SQL files must be run in Supabase; pushing code to GitHub or deploying the website to the VPS does not apply database migrations. If the Driver tab says verification is not set up, run this migration in the Supabase SQL Editor, then return to the app and tap **Try again**.
-4. Run `supabase/migrations/20261107000000_admin_dashboard.sql` after the two migrations above. It adds reviewer-only dashboard RPCs and publishes a restricted change signal for Realtime updates; the signal does not include ride or driver location data.
-5. Run `supabase/migrations/20261107010000_admin_dashboard_performance.sql`. It adds indexes and the single-request dashboard endpoint used by the faster admin panel. After deploying the website, open the separate admin page at `https://sawaari.online/admin`.
-6. Run `supabase/migrations/20261108010000_admin_vps_auth.sql`. It keeps the existing reviewer-only app functions and adds a separate service-role path for the VPS admin API. Apply this migration before starting that API.
-7. The admin login is separate from rider/driver accounts. On the VPS, configure the backend and Nginx once:
-
-   ```sh
-   cd /opt/sawaari-source
-   sudo node server/setup-admin-env.mjs
-   sudo cp deploy/sawaari-admin-api.service /etc/systemd/system/sawaari-admin-api.service
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now sawaari-admin-api
-   sudo nano /etc/nginx/sites-available/sawaari
-   ```
-
-   In the HTTPS `server { ... }` block in Nginx, add:
-
-   ```nginx
-   location /api/admin/ {
-       proxy_pass http://127.0.0.1:3210/api/admin/;
-       proxy_http_version 1.1;
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       proxy_set_header X-Forwarded-Proto $scheme;
-   }
-   ```
-
-   Save Nginx, then run `sudo nginx -t && sudo systemctl reload nginx`. The setup script privately prompts for the admin username/password and Supabase project URL/service-role key; it stores only a password hash at `/etc/sawaari/admin.env`, with the service-role key kept server-side. The Supabase key is for the admin API to read/update app data, not for admin login. Never put it in the website `.env`, GitHub, chat, or client code. The VPS admin API uses an HttpOnly secure session cookie and rate-limits sign-in attempts. The admin dashboard refreshes its server data every 10 seconds.
-8. A driver signs in, opens **Drive**, and submits their legal name, vehicle category/make/model/year, CNIC (front and back), driving licence (front and back), vehicle registration, and a vehicle photo. The CNIC and licence sides should be combined into one PDF or a clear image for each document type. Each PDF/JPG/PNG must be at most 10 MB.
-9. The driver sees **Application under review** while an authorized reviewer views the private files from the app's review queue and approves, requests changes, or rejects with feedback. The driver can resubmit after feedback. Only an approved application for the submitted vehicle category can go online.
-10. For matching, the approved driver chooses their verified vehicle category, allows location, and taps **Go online**. A signed-in rider on another device can send a request. Rider Trips and the driver's request list check for updates about every 10 seconds. Location sharing works only while the driver app is open.
-
-For local web email confirmation, open **Authentication → URL Configuration** in Supabase and add `http://localhost:8081/**` to **Redirect URLs**. The app directs new web confirmation emails back to the web origin currently open. If an older confirmation email redirects to an unavailable localhost page, return to the running app at `http://localhost:8081` and try signing in; the account may already be confirmed.
-
-The verification screen only collects and stores files for manual review; it does not verify identities against NADRA or government databases. Never use public buckets or put document links in chat. Set an appropriate retention/deletion policy for personal documents, restrict reviewer accounts, and do not upload real identity documents until you have the proper legal basis, consent, and privacy/security processes in place. Do not use this MVP for real passenger trips.
-
-Without the Supabase settings, rider place search and local ride drafts still work, but the app does not fabricate drivers or claim a local draft was broadcast. This is not a complete or production-ready inDrive replacement: phone/SMS verification, automated identity checks, counter-offers, payments, navigation, background location, SOS/support, fraud monitoring, and legal/compliance processes still need implementation and operational setup.
-
-## Run on an Android phone for daily development
-
-1. Install **Expo Go** from the Play Store on your Android phone.
-2. Connect the phone and computer to the same Wi-Fi network. In the project folder run `npx expo start`.
-3. Scan the QR code shown in the terminal with Expo Go. Keep the computer and Expo server running while testing.
-4. Sign in on the phone. For driver testing, allow location permission and keep Expo Go open. Use another device/account as the rider.
-
-This is a development preview, not an installed store app. If QR scanning cannot connect, run `npx expo start --tunnel` and scan the new QR code. For a distributable install or app-specific native Maps configuration, create an EAS development/preview build; Google Maps is optional and is not required for the OpenStreetMap web preview.
-
-## Google Maps for store builds
-
-The map uses `react-native-maps`. To build an installable app with Google Maps:
-
-1. Google Maps is optional for the local web preview. To configure it, create a Google Cloud project, enable billing, and enable the APIs for the platform you are configuring.
-2. For the browser, enable **Maps JavaScript API**, **Places API (New)**, and **Routes API**. Create a key restricted by website referrer to your local development URL and production domains, and restrict its API access to those services.
-3. For Android/iOS, enable **Maps SDK for Android** and **Maps SDK for iOS**. Create a mobile key restricted to Android package `com.sawaari.pakistan` and iOS bundle identifier `com.sawaari.pakistan`; restrict API access to the matching SDKs.
-4. Copy `.env.example` to `.env`. Set `EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY` to the browser key and `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` to the mobile key. Restart Expo after changing `.env`.
-5. Create a development or release build so native Maps configuration is included. An OTA update cannot add native map configuration to an existing binary.
-
-Both keys are visible to their respective clients and are not server secrets. Keep them protected with website/app and API restrictions; never use unrestricted keys. Do not send API keys in chat or commit `.env`. Google Maps requires an account, billing, and enabled APIs. I cannot create a key in someone else's Google Cloud account.
-
-## Current limitations
-
-This is not ready to accept real passengers or drivers. Shared authenticated matching and manual document review are available only after the Supabase project is configured and both SQL migrations are applied. The manual review feature is not official identity verification and does not provide phone verification, counter-offers, live trip tracking/navigation, payment processing, safety/SOS service, support operation, fraud controls, or a full admin audit/compliance system. Local-only saved requests are drafts and are **not** sent to drivers. Do not use this MVP to arrange real rides.
-
-Before a public launch, the backend, authentication and SMS provider, map/search and routing services, payment providers, operational support, data retention and privacy policy, driver verification, safety processes, and Pakistan city-specific compliance must be implemented and configured. Provider accounts and API keys require accepting their terms, configuring billing, and setting up security restrictions in accounts you control. No API credentials, SMS account, payment account, production backend, or deployment credentials were supplied, so none are fabricated or embedded here.
-
-## Development checks
-
-```powershell
-npx tsc --noEmit
-npx expo config --type public
-npx expo-doctor
+```sh
+sudo -u postgres createuser --pwprompt sawaari_app
+sudo -u postgres createdb --owner=sawaari_app sawaari
 ```
+
+Use the resulting connection URL in setup, for example `postgresql://sawaari_app:YOUR_DATABASE_PASSWORD@127.0.0.1:5432/sawaari`. If using a remote managed PostgreSQL host, use its connection URL and answer yes if its connection requires TLS.
+
+### 2. Install the source and prepare the deployment account
+
+Keep the API source at `/opt/sawaari-source`. Clone this repository there using your GitHub access method, then prepare the directory for the deploy and service users:
+
+```sh
+sudo mkdir -p /opt/sawaari-source
+sudo chown -R sawaari-deploy:www-data /opt/sawaari-source
+```
+
+The repository's GitHub Actions workflow uploads the `server/` source and package manifests to that directory. It also restarts `sawaari-api` after deployment. Permit only that exact restart command for the deploy account:
+
+```sh
+echo 'sawaari-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart sawaari-api' | sudo tee /etc/sudoers.d/sawaari-deploy-api
+sudo chmod 440 /etc/sudoers.d/sawaari-deploy-api
+sudo visudo -cf /etc/sudoers.d/sawaari-deploy-api
+```
+
+Change `sawaari-deploy` in these instructions if your GitHub Actions `VPS_USER` is different. Never grant the deployment account unrestricted sudo access.
+
+### 3. Configure the API, database, SMTP, and admin login
+
+From the source directory, run the setup interactively as root. The script prompts for your PostgreSQL URL, Hostinger SMTP host/port/email/password, sender address, and a separate admin username/password. Secret input is hidden. Enter these credentials only in the VPS terminal, never in chat or source control.
+
+```sh
+cd /opt/sawaari-source
+sudo node server/setup-vps.mjs
+```
+
+Hostinger commonly uses `smtp.hostinger.com` on port `465` (SSL) or `587` (STARTTLS); verify the outgoing mail settings in your Hostinger email account. Use a valid sender address from your Hostinger mailbox/domain. The setup writes `/etc/sawaari/api.env` with restricted permissions and creates `/var/lib/sawaari/private-documents` for private driver files.
+
+Install the service and initialize the empty database:
+
+```sh
+sudo systemctl disable --now sawaari-admin-api
+sudo cp deploy/sawaari-api.service /etc/systemd/system/sawaari-api.service
+sudo systemctl daemon-reload
+cd /opt/sawaari-source
+npm ci --omit=dev
+sudo -u www-data /usr/bin/node --env-file=/etc/sawaari/api.env server/migrate.mjs
+sudo systemctl enable --now sawaari-api
+sudo systemctl status sawaari-api
+```
+
+The service also runs the idempotent schema migration at startup. PostgreSQL stores account password hashes, one-time email verification tokens, sessions, rides, driver presence, and review state. Identity documents are outside the web root, limited to 10 MB per file, and accessible only through short-lived admin links.
+
+### 4. Configure Nginx and HTTPS
+
+The Nginx example proxies all `/api/` requests to the local API, allows driver document uploads, and serves the static web app. Use it as the basis for the HTTPS server block in `/etc/nginx/sites-available/sawaari`:
+
+```nginx
+location /api/ {
+    client_max_body_size 45m;
+    proxy_pass http://127.0.0.1:3210/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Confirm the `/api/` location is in the HTTPS server block and takes precedence over the SPA fallback. Then validate/reload Nginx:
+
+```sh
+sudo nginx -t
+sudo systemctl reload nginx
+curl -fsS https://sawaari.online/api/health
+```
+
+Expected health response: `{"status":"ok"}`. Configure DNS, ports 80/443, and an HTTPS certificate for `sawaari.online` before allowing public use.
+
+## Website deployment
+
+The GitHub Actions workflow builds the web app, typechecks and lints it, deploys `dist/`, uploads the VPS API source, and restarts the API. Configure repository secrets:
+
+| Secret | Purpose |
+|---|---|
+| `VPS_HOST` | VPS IP or hostname |
+| `VPS_USER` | Deployment account, normally `sawaari-deploy` |
+| `VPS_SSH_PRIVATE_KEY` | Private deployment key; the matching public key goes on the VPS |
+| `VPS_KNOWN_HOSTS` | Verified SSH host-key line |
+| `VPS_PORT` | Optional SSH port, defaults to 22 |
+| `EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY` | Optional restricted Maps key |
+
+Do not add database, SMTP, admin, or PostgreSQL credentials to GitHub Actions. They belong only in `/etc/sawaari/api.env` on the VPS. After deployment, test `/`, `/drive`, `/trips`, `/profile`, `/auth/confirm`, `/admin`, and `/api/health`.
+
+For Android/iOS builds, set `EXPO_PUBLIC_API_URL=https://sawaari.online/api` in the build environment and rebuild the app. Native sessions are kept in Expo SecureStore; web sessions use an HttpOnly Secure cookie.
+
+## Features and current limitations
+
+- Signup, password login, Hostinger email confirmation, and confirmation resend use the VPS API.
+- Riders can create and cancel ride requests; approved drivers can share foreground location, discover nearby requests, accept a request, and mark it complete.
+- Drivers can submit four private verification documents; the independent admin login reviews applications and serves private documents through expiring links.
+- The database is fresh. Existing Supabase users and ride data are not migrated. Users must create new accounts and confirm them; old password hashes and documents remain only in the old Supabase project.
+- Configure and periodically test encrypted database and private-document backups before storing real user data.
+- Location updates run only while the driver app is open. The app does not yet include phone/SMS verification, payments, counter-offers, turn-by-turn navigation, background location, SOS/support, fraud monitoring, or government identity checks. Do not treat this MVP as ready for real passenger operations without the relevant safety, privacy, security, legal, and operational work.
+- Public map/geocoding/routing services are best-effort. Select production providers and review their terms before commercial use.
+
+## Driver verification and admin operations
+
+The admin page is available at `https://sawaari.online/admin`. Its username and password are configured separately by the VPS setup script and do not share rider/driver credentials. The review queue displays pending applications, opens private documents through expiring URLs, and supports approval, change requests, or rejection.
+
+Driver applications collect a legal name, vehicle category/make/model/year, CNIC, driving licence, vehicle registration, and vehicle photo. The CNIC and licence sides should be combined in one PDF or image per document type. Documents are stored privately; the app does not verify identities against NADRA or government databases. Do not upload real identity documents without a lawful basis, informed consent, appropriate retention/deletion rules, and security procedures.
+
+## Google Maps
+
+Google Maps is optional. Configure the restricted web key in `.env` for Maps JavaScript, Places API (New), and Routes API. For native builds configure Android/iOS Maps SDKs, restrict the mobile key to package and bundle identifier `com.sawaari.pakistan`, and set `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`. The key is public in a client app; restrict it by platform and API.

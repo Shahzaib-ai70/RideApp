@@ -31,14 +31,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check required public build settings
-        env:
-          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
-        run: |
-          test -n "$EXPO_PUBLIC_SUPABASE_URL" || { echo "::error::Add the EXPO_PUBLIC_SUPABASE_URL repository secret."; exit 1; }
-          test -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY" || { echo "::error::Add the EXPO_PUBLIC_SUPABASE_ANON_KEY repository secret."; exit 1; }
-
       - name: Typecheck
         run: npm run typecheck
 
@@ -48,8 +40,6 @@ jobs:
       - name: Export production website
         run: npm run build:web
         env:
-          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
           EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY: ${{ secrets.EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY }}
 
       - name: Configure SSH
@@ -68,13 +58,29 @@ jobs:
           printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Upload website to VPS
+      - name: Upload and restart VPS API
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_PORT }}
         run: |
           test -n "$VPS_USER" || { echo "::error::Add the VPS_USER repository secret."; exit 1; }
+          VPS_PORT="${VPS_PORT:-22}"
+          SSH="ssh -i $HOME/.ssh/deploy_key -p $VPS_PORT -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes"
+          rsync -az --delete \
+            -e "$SSH" \
+            server/ "$VPS_USER@$VPS_HOST:/opt/sawaari-source/server/"
+          rsync -az package.json package-lock.json \
+            -e "$SSH" \
+            "$VPS_USER@$VPS_HOST:/opt/sawaari-source/"
+          $SSH "$VPS_USER@$VPS_HOST" 'cd /opt/sawaari-source && npm ci --omit=dev && sudo /usr/bin/systemctl restart sawaari-api && for attempt in $(seq 1 30); do curl -fsS http://127.0.0.1:3210/api/health >/dev/null && exit 0; sleep 2; done; sudo /usr/bin/systemctl status sawaari-api --no-pager; exit 1'
+
+      - name: Upload website to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
           VPS_PORT="${VPS_PORT:-22}"
           rsync -az --delete --itemize-changes \
             -e "ssh -i $HOME/.ssh/deploy_key -p $VPS_PORT -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes" \

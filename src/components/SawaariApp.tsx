@@ -24,7 +24,7 @@ import type { MapPoint } from './ride-map.types';
 import { loadGoogleMaps } from './google-maps';
 import AccountPanel from './AccountPanel';
 import { useAuth } from '../lib/AuthContext';
-import { supabase } from '../lib/supabase';
+import { apiRequest } from '../lib/api';
 
 type Coordinate = MapPoint;
 type MapViewport = Coordinate & { latitudeDelta: number; longitudeDelta: number };
@@ -280,8 +280,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   }, []);
 
   useEffect(() => {
-    const client = supabase;
-    if (screen !== 'Trips' || !configured || !session || !client) return undefined;
+    if (screen !== 'Trips' || !configured || !session) return undefined;
     let active = true;
     const refreshMatches = async () => {
       const cloudRides = rides.filter((ride) => ride.cloud);
@@ -291,31 +290,24 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       const errors: string[] = [];
 
       await Promise.all(cloudRides.map(async (ride) => {
-        const [driversResponse, statusResponse] = await Promise.all([
-          client.rpc('get_nearby_drivers', {
-            p_latitude: ride.pickup.latitude,
-            p_longitude: ride.pickup.longitude,
-            p_radius_m: 10000,
-          }),
-          client.rpc('get_my_ride_status', { p_request_id: ride.id }),
-        ]);
-        if (driversResponse.error) errors.push(driversResponse.error.message);
-        else if (Array.isArray(driversResponse.data)) {
-          driverResults[ride.id] = driversResponse.data.filter((candidate: unknown): candidate is NearbyDriver => {
-            if (typeof candidate !== 'object' || candidate === null) return false;
-            const driver = candidate as Record<string, unknown>;
-            return typeof driver.driver_id === 'string'
-              && typeof driver.driver_name === 'string'
-              && VEHICLES.some((item) => item === driver.vehicle)
-              && typeof driver.distance_m === 'number'
-              && typeof driver.updated_at === 'string';
-          });
-        }
-        if (statusResponse.error) errors.push(statusResponse.error.message);
-        else if (Array.isArray(statusResponse.data) && statusResponse.data.length > 0) {
-          const current = statusResponse.data[0] as unknown;
-          if (typeof current === 'object' && current !== null) {
-            const status = current as Record<string, unknown>;
+        try {
+          const result = await apiRequest<{
+            drivers: unknown[];
+            status: unknown;
+          }>(`/rides/${encodeURIComponent(ride.id)}/matches`);
+          if (Array.isArray(result.drivers)) {
+            driverResults[ride.id] = result.drivers.filter((candidate: unknown): candidate is NearbyDriver => {
+              if (typeof candidate !== 'object' || candidate === null) return false;
+              const driver = candidate as Record<string, unknown>;
+              return typeof driver.driver_id === 'string'
+                && typeof driver.driver_name === 'string'
+                && VEHICLES.some((item) => item === driver.vehicle)
+                && typeof driver.distance_m === 'number'
+                && typeof driver.updated_at === 'string';
+            });
+          }
+          if (typeof result.status === 'object' && result.status !== null) {
+            const status = result.status as Record<string, unknown>;
             if (typeof status.status === 'string'
               && typeof status.driver_name === 'string'
               && typeof status.driver_vehicle === 'string') {
@@ -326,6 +318,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               };
             }
           }
+        } catch (error: unknown) {
+          errors.push(error instanceof Error ? error.message : 'Could not refresh ride status.');
         }
       }));
 
@@ -629,8 +623,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       try {
         let savedRide = ride;
         if (configured) {
-          const client = supabase;
-          if (!session || !client) {
+          if (!session) {
             showMessage(
               'Sign in to find drivers',
               'Open Profile and create or sign in to your account before sending this request to nearby drivers.',
@@ -638,21 +631,23 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             router.navigate('/profile');
             return;
           }
-          const { data, error } = await client.rpc('create_ride_request', {
-            p_pickup_address: ride.pickupAddress,
-            p_destination_address: ride.destinationAddress,
-            p_pickup_latitude: ride.pickup.latitude,
-            p_pickup_longitude: ride.pickup.longitude,
-            p_destination_latitude: ride.destination.latitude,
-            p_destination_longitude: ride.destination.longitude,
-            p_vehicle: ride.vehicle,
-            p_offered_fare: ride.offer,
+          const result = await apiRequest<{ request_id: string }>('/rides', {
+            method: 'POST',
+            body: JSON.stringify({
+              pickup_address: ride.pickupAddress,
+              destination_address: ride.destinationAddress,
+              pickup_latitude: ride.pickup.latitude,
+              pickup_longitude: ride.pickup.longitude,
+              destination_latitude: ride.destination.latitude,
+              destination_longitude: ride.destination.longitude,
+              vehicle: ride.vehicle,
+              offered_fare: ride.offer,
+            }),
           });
-          if (error) throw error;
-          if (typeof data !== 'string') {
+          if (typeof result.request_id !== 'string') {
             throw new Error('The server did not confirm the ride request.');
           }
-          savedRide = { ...ride, id: data, cloud: true };
+          savedRide = { ...ride, id: result.request_id, cloud: true };
         }
         const nextRides = [savedRide, ...rides];
         setRides(nextRides);
@@ -681,7 +676,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           savedRide.cloud ? 'Searching nearby drivers' : 'Local draft saved',
           savedRide.cloud
             ? 'Your request was sent to online drivers nearby. Check Trips for available drivers.'
-            : 'This request is saved on this device only. To find real nearby drivers, configure the shared Supabase backend and sign in.',
+            : 'This request is saved on this device only. Sign in to send a request to nearby drivers.',
         );
       } catch (error: unknown) {
         const detail = error instanceof Error ? error.message : 'Please try again.';
@@ -710,13 +705,13 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   };
 
   const cancelRide = (ride: Ride) => {
-    const client = supabase;
-    if (!client) return;
     const cancel = async () => {
-      const { error } = await client.rpc('cancel_ride_request', { p_request_id: ride.id });
-      if (error) {
-        setMatchingError(error.message);
-        showMessage('Could not cancel request', error.message);
+      try {
+        await apiRequest(`/rides/${encodeURIComponent(ride.id)}/cancel`, { method: 'POST' });
+      } catch (error: unknown) {
+        const detail = error instanceof Error ? error.message : 'Please try again.';
+        setMatchingError(detail);
+        showMessage('Could not cancel request', detail);
         return;
       }
       setRideStatuses((current) => ({
@@ -1153,7 +1148,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             <Text style={styles.localNoticeText}>
               {rides.some((ride) => ride.cloud)
                 ? 'Searching for real online drivers near your pickup. Matches refresh every 10 seconds.'
-                : 'These are local drafts. Sign in and configure Supabase to search for real nearby drivers.'}
+                : 'These are local drafts. Sign in to send a request to nearby drivers.'}
             </Text>
           </View>
           {rides.map((ride) => (
@@ -1271,14 +1266,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         <Text style={styles.secondaryTitle}>Your account</Text>
         <Text style={styles.secondarySubtitle}>Sign in to request rides or drive</Text>
       </View>
-      {configured ? <AccountPanel /> : (
-        <View style={styles.localNotice}>
-          <Ionicons name="cloud-offline-outline" size={17} color={COLORS.green} />
-          <Text style={styles.localNoticeText}>
-            Supabase is not configured. Local ride planning works, but real accounts and driver matching need your Supabase project settings.
-          </Text>
-        </View>
-      )}
+      <AccountPanel />
       <View style={styles.profileCard}>
         <View style={styles.profileAvatar}>
           <Ionicons name="person" size={25} color={COLORS.green} />
@@ -1327,7 +1315,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       <View style={styles.profileFootnote}>
         <Ionicons name="information-circle-outline" size={18} color={COLORS.orange} />
         <Text style={styles.profileFootnoteText}>
-          Live driver search only works after Supabase is configured and an account is signed in. Safety, identity checks and payments are not connected.
+          Live driver search requires a confirmed account. Safety, identity checks and payments are not connected.
         </Text>
       </View>
     </View>
