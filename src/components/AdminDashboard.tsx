@@ -249,154 +249,253 @@ export default function AdminDashboard({
         />
       }
     >
-      <View style={styles.headingRow}>
-        <View style={styles.headingCopy}>
-          <Text style={styles.eyebrow}>SAWAARI OPERATIONS</Text>
-          <Text style={styles.title}>Admin dashboard</Text>
-        </View>
-        <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
-          <Text style={styles.closeText}>Close</Text>
-        </Pressable>
-      </View>
-      <View style={styles.liveRow}>
-        <View style={[styles.liveDot, realtimeConnected ? styles.liveDotOn : styles.liveDotOff]} />
-        <Text style={styles.liveText}>
-          {realtimeConnected ? 'Live updates connected' : 'Reconnecting · checking every 30 seconds'}
-        </Text>
-        {lastUpdated ? <Text style={styles.updatedText}>Updated {formatTime(lastUpdated)}</Text> : null}
-      </View>
-
-      <Pressable accessibilityRole="button" onPress={onOpenReviews} style={styles.reviewButton}>
-        <Ionicons name="shield-checkmark-outline" size={18} color={COLORS.green} />
-        <Text style={styles.reviewButtonText}>Review driver applications</Text>
-        <Ionicons name="chevron-forward" size={17} color={COLORS.green} />
-      </Pressable>
-
-      {error ? (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorTitle}>Dashboard could not refresh</Text>
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.retryButton}>
-            <Text style={styles.retryText}>Try again</Text>
+      <View style={styles.content}>
+        <View style={styles.topBar}>
+          <View style={styles.brand}>
+            <View style={styles.brandMark}>
+              <Ionicons name="shield-checkmark" size={20} color={COLORS.lime} />
+            </View>
+            <View>
+              <Text style={styles.brandName}>SAWAARI</Text>
+              <Text style={styles.brandCaption}>OPERATIONS CENTER</Text>
+            </View>
+          </View>
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="arrow-back-outline" size={15} color={COLORS.green} />
+            <Text style={styles.closeText}>Back to app</Text>
           </Pressable>
         </View>
-      ) : null}
 
-      <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>Today at a glance</Text>
-        {loading ? <ActivityIndicator size="small" color={COLORS.green} /> : null}
-      </View>
-      <View style={styles.metricsGrid}>
-        {metrics.map((metric) => (
-          <View key={metric.label} style={[styles.metricCard, metric.accent && styles.metricCardAccent]}>
-            <View style={styles.metricTop}>
-              <Ionicons name={metric.icon} size={17} color={metric.accent ? COLORS.green : COLORS.muted} />
+        <View style={styles.hero}>
+          <View style={styles.heroTop}>
+            <View style={styles.heroLabel}>
+              <Ionicons name="pulse-outline" size={14} color={COLORS.lime} />
+              <Text style={styles.heroLabelText}>OPERATIONS OVERVIEW</Text>
+            </View>
+            <View style={styles.livePill}>
+              <View style={[styles.liveDot, realtimeConnected ? styles.liveDotOn : styles.liveDotOff]} />
+              <Text style={styles.liveText}>{realtimeConnected ? 'LIVE' : 'SYNCING'}</Text>
+            </View>
+          </View>
+          <Text style={styles.title}>Your city, in motion.</Text>
+          <Text style={styles.heroCopy}>
+            Monitor rides, drivers and applications from one place.
+          </Text>
+          <View style={styles.heroFooter}>
+            <Ionicons name="time-outline" size={14} color="#B5C9BE" />
+            <Text style={styles.updatedText}>
+              {lastUpdated ? `Last updated ${formatTime(lastUpdated)}` : 'Waiting for first update'}
+            </Text>
+            <Text style={styles.heroHint}>Pull down to refresh</Text>
+          </View>
+        </View>
+
+        <Pressable accessibilityRole="button" onPress={onOpenReviews} style={styles.reviewButton}>
+          <View style={styles.reviewIcon}>
+            <Ionicons name="document-text-outline" size={20} color={COLORS.green} />
+          </View>
+          <View style={styles.reviewCopy}>
+            <Text style={styles.reviewButtonText}>Driver application review</Text>
+            <Text style={styles.reviewSubtitle}>Check documents and manage approvals</Text>
+          </View>
+          <View style={styles.reviewCount}>
+            <Text style={styles.reviewCountText}>{loading ? '—' : summary.pendingApplications}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.green} />
+        </Pressable>
+
+        {error ? (
+          <View style={styles.errorCard}>
+            <View style={styles.errorIcon}><Ionicons name="warning-outline" size={18} color={COLORS.red} /></View>
+            <View style={styles.errorCopy}>
+              <Text style={styles.errorTitle}>Dashboard could not refresh</Text>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+            <Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.retryButton}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={styles.sectionHeading}>
+          <View>
+            <Text style={styles.sectionTitle}>Today at a glance</Text>
+            <Text style={styles.sectionSubtitle}>A live snapshot of Sawaari operations</Text>
+          </View>
+          {loading ? <ActivityIndicator size="small" color={COLORS.green} /> : null}
+        </View>
+        <View style={styles.metricsGrid}>
+          {metrics.map((metric) => (
+            <View key={metric.label} style={[styles.metricCard, metric.accent && styles.metricCardAccent]}>
+              <View style={[styles.metricIcon, metric.accent && styles.metricIconAccent]}>
+                <Ionicons name={metric.icon} size={18} color={metric.accent ? COLORS.green : COLORS.muted} />
+              </View>
+              <Text style={styles.metricValue}>{loading ? '—' : metric.value}</Text>
               <Text style={styles.metricLabel}>{metric.label}</Text>
             </View>
-            <Text style={styles.metricValue}>{loading ? '—' : metric.value}</Text>
-          </View>
-        ))}
-      </View>
+          ))}
+        </View>
 
-      <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>Online drivers</Text>
-        <Text style={styles.sectionCount}>{drivers.length} active</Text>
-      </View>
-      {drivers.length === 0 && !loading ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>No approved drivers are currently online.</Text>
-        </View>
-      ) : null}
-      {drivers.map((driver) => (
-        <View key={driver.driver_id} style={styles.listCard}>
-          <View style={styles.avatar}>
-            <Ionicons name="person-outline" size={17} color={COLORS.green} />
+        <View style={styles.sectionHeading}>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.sectionIcon}><Ionicons name="radio-outline" size={16} color={COLORS.green} /></View>
+            <Text style={styles.sectionTitle}>Drivers online</Text>
           </View>
-          <View style={styles.listCopy}>
-            <Text style={styles.listTitle}>{driver.driver_name || 'Sawaari driver'}</Text>
-            <Text style={styles.listDetail}>{driver.vehicle} · location updated {formatTime(driver.last_seen_at)}</Text>
-          </View>
-          <View style={styles.onlineBadge}><Text style={styles.onlineText}>ONLINE</Text></View>
+          <View style={styles.sectionCountPill}><Text style={styles.sectionCount}>{drivers.length} active</Text></View>
         </View>
-      ))}
+        <View style={styles.listGroup}>
+          {drivers.length === 0 && !loading ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="car-outline" size={22} color={COLORS.muted} />
+              <Text style={styles.emptyText}>No approved drivers are online right now.</Text>
+            </View>
+          ) : null}
+          {drivers.map((driver) => (
+            <View key={driver.driver_id} style={styles.listCard}>
+              <View style={styles.avatar}>
+                <Ionicons name="person-outline" size={17} color={COLORS.green} />
+              </View>
+              <View style={styles.listCopy}>
+                <Text style={styles.listTitle}>{driver.driver_name || 'Sawaari driver'}</Text>
+                <Text style={styles.listDetail}>{driver.vehicle} · Updated {formatTime(driver.last_seen_at)}</Text>
+              </View>
+              <View style={styles.onlineBadge}><View style={styles.onlineDot} /><Text style={styles.onlineText}>ONLINE</Text></View>
+            </View>
+          ))}
+        </View>
 
-      <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>Live rides</Text>
-        <Text style={styles.sectionCount}>{rides.length} active</Text>
-      </View>
-      {rides.length === 0 && !loading ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>No searching or in-progress rides right now.</Text>
-        </View>
-      ) : null}
-      {rides.map((ride) => (
-        <View key={ride.request_id} style={styles.rideCard}>
-          <View style={styles.rideTopRow}>
-            <Text style={styles.listTitle}>{ride.status === 'searching' ? 'Finding a driver' : 'Ride in progress'}</Text>
-            <Text style={styles.fare}>PKR {ride.offered_fare}</Text>
+        <View style={styles.sectionHeading}>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.sectionIcon}><Ionicons name="navigate-outline" size={16} color={COLORS.green} /></View>
+            <Text style={styles.sectionTitle}>Live rides</Text>
           </View>
-          <Text style={styles.listDetail}>
-            {ride.rider_name || 'Rider'} · {ride.vehicle} · {ride.status === 'accepted'
-              ? `Driver: ${ride.driver_name || 'Assigned'}`
-              : 'No driver assigned'}
+          <View style={styles.sectionCountPill}><Text style={styles.sectionCount}>{rides.length} active</Text></View>
+        </View>
+        <View style={styles.listGroup}>
+          {rides.length === 0 && !loading ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="map-outline" size={22} color={COLORS.muted} />
+              <Text style={styles.emptyText}>No searching or in-progress rides at the moment.</Text>
+            </View>
+          ) : null}
+          {rides.map((ride) => (
+            <View key={ride.request_id} style={styles.rideCard}>
+              <View style={styles.rideTopRow}>
+                <View style={[styles.rideStatus, ride.status === 'accepted' ? styles.rideStatusActive : styles.rideStatusSearching]}>
+                  <View style={[styles.rideStatusDot, ride.status === 'accepted' ? styles.rideDotActive : styles.rideDotSearching]} />
+                  <Text style={styles.rideStatusText}>{ride.status === 'searching' ? 'Finding a driver' : 'In progress'}</Text>
+                </View>
+                <Text style={styles.fare}>PKR {ride.offered_fare}</Text>
+              </View>
+              <Text style={styles.listDetail}>
+                {ride.rider_name || 'Rider'} · {ride.vehicle} · {ride.status === 'accepted'
+                  ? `Driver: ${ride.driver_name || 'Assigned'}`
+                  : 'No driver assigned'}
+              </Text>
+              <View style={styles.routeLine}>
+                <View style={styles.routeDots}><View style={styles.routeStart} /><View style={styles.routeDash} /><View style={styles.routeEnd} /></View>
+                <View style={styles.routeCopy}>
+                  <Text style={styles.routeText} numberOfLines={1}>{ride.pickup_address}</Text>
+                  <Text style={styles.routeText} numberOfLines={1}>{ride.destination_address}</Text>
+                </View>
+              </View>
+              <Text style={styles.timeText}>Requested {formatTime(ride.created_at)}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.disclaimerCard}>
+          <Ionicons name="lock-closed-outline" size={15} color={COLORS.muted} />
+          <Text style={styles.disclaimer}>
+            Restricted admin view. Private driver documents are available only in the review queue. Online status expires when location updates stop.
           </Text>
-          <Text style={styles.routeText} numberOfLines={2}>
-            {ride.pickup_address} → {ride.destination_address}
-          </Text>
-          <Text style={styles.timeText}>Requested {formatTime(ride.created_at)}</Text>
         </View>
-      ))}
-
-      <Text style={styles.disclaimer}>
-        Admin access is limited to authorized reviewer accounts. Driver documents are kept in the separate review queue and are not shown on this dashboard. Live online state expires if a driver stops sending location updates.
-      </Text>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { padding: 18, paddingBottom: 36, gap: 12, backgroundColor: COLORS.paper, flexGrow: 1 },
-  headingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headingCopy: { flex: 1 },
-  eyebrow: { marginTop: 6, color: COLORS.green, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
-  title: { marginTop: 4, color: COLORS.ink, fontSize: 24, fontWeight: '800' },
-  closeButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, backgroundColor: '#E7F3E2' },
-  closeText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
-  liveRow: { minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 7 },
-  liveDot: { width: 8, height: 8, borderRadius: 4 },
-  liveDotOn: { backgroundColor: '#2D9B63' },
+  screen: { padding: 18, paddingBottom: 42, backgroundColor: COLORS.paper, flexGrow: 1 },
+  content: { width: '100%', maxWidth: 1120, alignSelf: 'center', gap: 18 },
+  topBar: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandMark: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: COLORS.green },
+  brandName: { color: COLORS.ink, fontSize: 14, fontWeight: '900', letterSpacing: 1.5 },
+  brandCaption: { marginTop: 3, color: COLORS.muted, fontSize: 8, fontWeight: '800', letterSpacing: 1.2 },
+  closeButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  closeText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
+  hero: { padding: 22, borderRadius: 20, backgroundColor: COLORS.green, gap: 10, overflow: 'hidden' },
+  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  heroLabel: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  heroLabelText: { color: '#D5E6DA', fontSize: 9, fontWeight: '800', letterSpacing: 1.4 },
+  livePill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20, backgroundColor: '#FFFFFF1A' },
+  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  liveDotOn: { backgroundColor: COLORS.lime },
   liveDotOff: { backgroundColor: COLORS.orange },
-  liveText: { flex: 1, color: COLORS.muted, fontSize: 10, fontWeight: '700' },
-  updatedText: { color: COLORS.muted, fontSize: 9 },
-  reviewButton: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 13, borderRadius: 11, backgroundColor: COLORS.lime },
-  reviewButtonText: { flex: 1, color: COLORS.green, fontSize: 12, fontWeight: '800' },
-  errorCard: { padding: 12, borderRadius: 11, backgroundColor: '#FBE9E8', gap: 5 },
-  errorTitle: { color: COLORS.red, fontSize: 11, fontWeight: '800' },
+  liveText: { color: COLORS.white, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
+  title: { marginTop: 3, color: COLORS.white, fontSize: 30, lineHeight: 37, fontWeight: '900' },
+  heroCopy: { color: '#D5E6DA', fontSize: 12, lineHeight: 18 },
+  heroFooter: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 5 },
+  updatedText: { color: '#D5E6DA', fontSize: 9 },
+  heroHint: { marginLeft: 'auto', color: '#B5C9BE', fontSize: 9 },
+  reviewButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: '#DDE8D6', borderRadius: 15, backgroundColor: '#F0F6E9' },
+  reviewIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: COLORS.lime },
+  reviewCopy: { flex: 1, gap: 4 },
+  reviewButtonText: { color: COLORS.green, fontSize: 13, fontWeight: '900' },
+  reviewSubtitle: { color: COLORS.muted, fontSize: 10 },
+  reviewCount: { minWidth: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: COLORS.white },
+  reviewCountText: { color: COLORS.green, fontSize: 14, fontWeight: '900' },
+  errorCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 13, backgroundColor: '#FBE9E8' },
+  errorIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: COLORS.white },
+  errorCopy: { flex: 1, gap: 3 },
+  errorTitle: { color: COLORS.red, fontSize: 11, fontWeight: '900' },
   errorText: { color: COLORS.red, fontSize: 10, lineHeight: 15 },
-  retryButton: { alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: COLORS.white },
-  retryText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
-  sectionHeading: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  sectionTitle: { color: COLORS.ink, fontSize: 15, fontWeight: '800' },
-  sectionCount: { color: COLORS.muted, fontSize: 10, fontWeight: '700' },
-  metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
-  metricCard: { width: '48%', flexGrow: 1, minHeight: 91, padding: 12, borderRadius: 13, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white, gap: 11 },
-  metricCardAccent: { backgroundColor: '#EFF5E7', borderColor: '#D5E4C8' },
-  metricTop: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  metricLabel: { flex: 1, color: COLORS.muted, fontSize: 9, fontWeight: '700' },
-  metricValue: { color: COLORS.ink, fontSize: 23, fontWeight: '800' },
-  emptyCard: { padding: 15, borderRadius: 12, backgroundColor: COLORS.white },
-  emptyText: { color: COLORS.muted, fontSize: 11 },
-  listCard: { minHeight: 61, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 11, borderRadius: 12, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
-  avatar: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#E7F3E2' },
-  listCopy: { flex: 1, gap: 4 },
-  listTitle: { color: COLORS.ink, fontSize: 11, fontWeight: '800' },
+  retryButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, backgroundColor: COLORS.white },
+  retryText: { color: COLORS.green, fontSize: 10, fontWeight: '900' },
+  sectionHeading: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 3 },
+  sectionTitle: { color: COLORS.ink, fontSize: 15, fontWeight: '900' },
+  sectionSubtitle: { marginTop: 4, color: COLORS.muted, fontSize: 10 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  sectionIcon: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#E8F0E4' },
+  sectionCountPill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: '#E9EEE6' },
+  sectionCount: { color: COLORS.green, fontSize: 9, fontWeight: '800' },
+  metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  metricCard: { width: '31%', minWidth: 145, flexGrow: 1, minHeight: 132, justifyContent: 'space-between', padding: 14, borderRadius: 15, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  metricCardAccent: { backgroundColor: '#F0F6E9', borderColor: '#DDE8D6' },
+  metricIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: '#F1F3EE' },
+  metricIconAccent: { backgroundColor: COLORS.lime },
+  metricLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '700' },
+  metricValue: { marginTop: 8, color: COLORS.ink, fontSize: 27, fontWeight: '900' },
+  listGroup: { gap: 8 },
+  emptyCard: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  emptyText: { flex: 1, color: COLORS.muted, fontSize: 11, lineHeight: 16 },
+  listCard: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  avatar: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#E8F0E4' },
+  listCopy: { flex: 1, gap: 5 },
+  listTitle: { color: COLORS.ink, fontSize: 11, fontWeight: '900' },
   listDetail: { color: COLORS.muted, fontSize: 9, lineHeight: 14 },
-  onlineBadge: { paddingHorizontal: 7, paddingVertical: 5, borderRadius: 7, backgroundColor: '#E7F3E2' },
-  onlineText: { color: COLORS.green, fontSize: 8, fontWeight: '800' },
-  rideCard: { padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white, gap: 7 },
+  onlineBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 20, backgroundColor: '#E8F4EA' },
+  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#2D9B63' },
+  onlineText: { color: COLORS.green, fontSize: 8, fontWeight: '900' },
+  rideCard: { padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white, gap: 10 },
   rideTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  fare: { color: COLORS.green, fontSize: 12, fontWeight: '800' },
+  rideStatus: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20 },
+  rideStatusActive: { backgroundColor: '#E8F4EA' },
+  rideStatusSearching: { backgroundColor: '#FFF2E5' },
+  rideStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  rideDotActive: { backgroundColor: '#2D9B63' },
+  rideDotSearching: { backgroundColor: COLORS.orange },
+  rideStatusText: { color: COLORS.ink, fontSize: 9, fontWeight: '800' },
+  fare: { color: COLORS.green, fontSize: 12, fontWeight: '900' },
+  routeLine: { flexDirection: 'row', alignItems: 'stretch', gap: 10, paddingVertical: 2 },
+  routeDots: { width: 10, alignItems: 'center', paddingVertical: 3 },
+  routeStart: { width: 7, height: 7, borderRadius: 4, borderWidth: 2, borderColor: COLORS.green },
+  routeDash: { width: 1, flex: 1, minHeight: 8, backgroundColor: '#B8C7B7' },
+  routeEnd: { width: 7, height: 7, backgroundColor: COLORS.green },
+  routeCopy: { flex: 1, justifyContent: 'space-between', gap: 8 },
   routeText: { color: COLORS.ink, fontSize: 10, lineHeight: 15 },
   timeText: { color: COLORS.muted, fontSize: 9 },
-  disclaimer: { marginTop: 4, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
+  disclaimerCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: 12, backgroundColor: '#ECEFE9' },
+  disclaimer: { flex: 1, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
 });

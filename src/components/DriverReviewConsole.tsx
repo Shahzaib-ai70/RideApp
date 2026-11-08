@@ -22,6 +22,7 @@ const COLORS = {
   line: '#E8EBE4',
   white: '#FFFFFF',
   red: '#C34242',
+  orange: '#EF9B54',
 };
 
 type ReviewDocument = { doc_type: string; path: string; content_type: string };
@@ -143,113 +144,195 @@ export default function DriverReviewConsole({ onClose }: { onClose: () => void }
 
   return (
     <ScrollView contentContainerStyle={styles.screen}>
-      <View style={styles.headingRow}>
-        <View style={styles.headingCopy}>
-          <Text style={styles.eyebrow}>AUTHORIZED REVIEWER</Text>
-          <Text style={styles.title}>Driver applications</Text>
-        </View>
-        <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
-          <Text style={styles.closeText}>Close</Text>
-        </Pressable>
-      </View>
-      <Text style={styles.subtitle}>
-        Review each private file carefully. A driver can go online only after you approve their application.
-      </Text>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {loading ? <ActivityIndicator color={COLORS.green} /> : null}
-      {!loading && applications.length === 0 && !error ? (
-        <View style={styles.empty}>
-          <Ionicons name="checkmark-done-outline" size={25} color={COLORS.green} />
-          <Text style={styles.emptyTitle}>No applications waiting</Text>
-          <Text style={styles.emptyCopy}>Pending driver submissions will appear here.</Text>
-        </View>
-      ) : null}
-      {applications.map((application) => (
-        <View key={application.application_id} style={styles.card}>
-          <Text style={styles.applicant}>{application.full_name}</Text>
-          <Text style={styles.detail}>
-            {application.vehicle_type} · {application.vehicle_year} {application.vehicle_make} {application.vehicle_model}
-          </Text>
-          <Text style={styles.detail}>
-            Submitted {new Date(application.submitted_at).toLocaleString()}
-          </Text>
-          <Text style={styles.sectionTitle}>Private documents</Text>
-          {application.documents.map((document) => (
-            <Pressable
-              key={document.path}
-              accessibilityRole="button"
-              onPress={() => void openDocument(document.path)}
-              style={styles.documentButton}
-            >
-              <Ionicons name="document-text-outline" size={17} color={COLORS.green} />
-              <Text style={styles.documentText}>
-                Open {DOCUMENT_LABELS[document.doc_type] ?? 'document'}
-              </Text>
-              <Ionicons name="open-outline" size={15} color={COLORS.muted} />
-            </Pressable>
-          ))}
-          <TextInput
-            accessibilityLabel={`Review feedback for ${application.full_name}`}
-            value={notes[application.application_id] ?? ''}
-            onChangeText={(value) => setNotes((current) => ({
-              ...current,
-              [application.application_id]: value,
-            }))}
-            placeholder="Feedback (required for changes or rejection)"
-            multiline
-            editable={busyId !== application.application_id}
-            style={styles.noteInput}
-          />
-          {busyId === application.application_id ? (
-            <ActivityIndicator color={COLORS.green} />
-          ) : (
-            <View style={styles.actionRow}>
-              <Pressable onPress={() => void review(application.application_id, 'approved')} style={styles.approveButton}>
-                <Text style={styles.approveText}>Approve</Text>
-              </Pressable>
-              <Pressable onPress={() => void review(application.application_id, 'needs_changes')} style={styles.changeButton}>
-                <Text style={styles.changeText}>Request changes</Text>
-              </Pressable>
-              <Pressable onPress={() => void review(application.application_id, 'rejected')} style={styles.rejectButton}>
-                <Text style={styles.rejectText}>Reject</Text>
-              </Pressable>
+      <View style={styles.content}>
+        <View style={styles.topBar}>
+          <View style={styles.brand}>
+            <View style={styles.brandMark}>
+              <Ionicons name="shield-checkmark" size={19} color={COLORS.lime} />
             </View>
-          )}
+            <View>
+              <Text style={styles.brandName}>SAWAARI</Text>
+              <Text style={styles.brandCaption}>OPERATIONS CENTER</Text>
+            </View>
+          </View>
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="arrow-back-outline" size={15} color={COLORS.green} />
+            <Text style={styles.closeText}>Dashboard</Text>
+          </Pressable>
         </View>
-      ))}
-      <Text style={styles.disclaimer}>
-        Only use this reviewer access for verification tasks. These files contain sensitive identity information; do not download or share them unnecessarily.
-      </Text>
+
+        <View style={styles.hero}>
+          <View style={styles.heroLabel}>
+            <Ionicons name="document-text-outline" size={15} color={COLORS.lime} />
+            <Text style={styles.heroLabelText}>DRIVER VERIFICATION</Text>
+          </View>
+          <Text style={styles.title}>Application review</Text>
+          <Text style={styles.subtitle}>
+            Review documents carefully. Drivers can go online only after their application is approved.
+          </Text>
+          <View style={styles.queueBadge}>
+            <Text style={styles.queueNumber}>{loading ? '—' : applications.length}</Text>
+            <Text style={styles.queueLabel}>WAITING FOR REVIEW</Text>
+          </View>
+        </View>
+
+        {error ? (
+          <View style={styles.error}>
+            <Ionicons name="warning-outline" size={18} color={COLORS.red} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
+        {loading ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator color={COLORS.green} />
+            <Text style={styles.emptyCopy}>Loading applications…</Text>
+          </View>
+        ) : null}
+        {!loading && applications.length === 0 && !error ? (
+          <View style={styles.empty}>
+            <View style={styles.emptyIcon}><Ionicons name="checkmark-done-outline" size={24} color={COLORS.green} /></View>
+            <Text style={styles.emptyTitle}>You’re all caught up</Text>
+            <Text style={styles.emptyCopy}>New driver submissions will appear here automatically.</Text>
+          </View>
+        ) : null}
+        {applications.map((application) => (
+          <View key={application.application_id} style={styles.card}>
+            <View style={styles.applicantHeader}>
+              <View style={styles.applicantAvatar}><Ionicons name="person-outline" size={19} color={COLORS.green} /></View>
+              <View style={styles.applicantCopy}>
+                <Text style={styles.applicant}>{application.full_name}</Text>
+                <Text style={styles.detail}>
+                  {application.vehicle_type} · {application.vehicle_year} {application.vehicle_make} {application.vehicle_model}
+                </Text>
+              </View>
+              <View style={styles.pendingBadge}><View style={styles.pendingDot} /><Text style={styles.pendingText}>PENDING</Text></View>
+            </View>
+            <View style={styles.submittedRow}>
+              <Ionicons name="calendar-outline" size={14} color={COLORS.muted} />
+              <Text style={styles.detail}>Submitted {new Date(application.submitted_at).toLocaleString()}</Text>
+            </View>
+
+            <View style={styles.divider} />
+            <View style={styles.documentsHeading}>
+              <View>
+                <Text style={styles.sectionTitle}>Submitted documents</Text>
+                <Text style={styles.detail}>Open each private file to review</Text>
+              </View>
+              <Ionicons name="lock-closed-outline" size={15} color={COLORS.muted} />
+            </View>
+            <View style={styles.documentsList}>
+              {application.documents.map((document) => (
+                <Pressable
+                  key={document.path}
+                  accessibilityRole="button"
+                  onPress={() => void openDocument(document.path)}
+                  style={styles.documentButton}
+                >
+                  <View style={styles.documentIcon}><Ionicons name="document-text-outline" size={17} color={COLORS.green} /></View>
+                  <Text style={styles.documentText}>
+                    {DOCUMENT_LABELS[document.doc_type] ?? 'Driver document'}
+                  </Text>
+                  <Ionicons name="open-outline" size={15} color={COLORS.green} />
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.divider} />
+            <Text style={styles.sectionTitle}>Review decision</Text>
+            <TextInput
+              accessibilityLabel={`Review feedback for ${application.full_name}`}
+              value={notes[application.application_id] ?? ''}
+              onChangeText={(value) => setNotes((current) => ({
+                ...current,
+                [application.application_id]: value,
+              }))}
+              placeholder="Add feedback (required for changes or rejection)"
+              multiline
+              editable={busyId !== application.application_id}
+              style={styles.noteInput}
+            />
+            {busyId === application.application_id ? (
+              <View style={styles.processing}><ActivityIndicator color={COLORS.green} /><Text style={styles.detail}>Saving decision…</Text></View>
+            ) : (
+              <View style={styles.actionRow}>
+                <Pressable accessibilityRole="button" onPress={() => void review(application.application_id, 'approved')} style={styles.approveButton}>
+                  <Ionicons name="checkmark-circle-outline" size={16} color={COLORS.white} />
+                  <Text style={styles.approveText}>Approve</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => void review(application.application_id, 'needs_changes')} style={styles.changeButton}>
+                  <Ionicons name="create-outline" size={15} color="#8C551F" />
+                  <Text style={styles.changeText}>Request changes</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={() => void review(application.application_id, 'rejected')} style={styles.rejectButton}>
+                  <Ionicons name="close-circle-outline" size={15} color={COLORS.red} />
+                  <Text style={styles.rejectText}>Reject</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        ))}
+        <View style={styles.disclaimerCard}>
+          <Ionicons name="lock-closed-outline" size={15} color={COLORS.muted} />
+          <Text style={styles.disclaimer}>
+            These files contain sensitive identity information. Do not download or share documents outside the verification process.
+          </Text>
+        </View>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { padding: 20, paddingBottom: 36, gap: 12, backgroundColor: COLORS.paper, flexGrow: 1 },
-  headingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headingCopy: { flex: 1 },
-  eyebrow: { marginTop: 6, color: COLORS.green, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
-  title: { marginTop: 4, color: COLORS.ink, fontSize: 25, fontWeight: '800' },
-  subtitle: { color: COLORS.muted, fontSize: 12, lineHeight: 18 },
-  closeButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, backgroundColor: '#E7F3E2' },
-  closeText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
-  card: { padding: 14, borderRadius: 15, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white, gap: 9 },
-  applicant: { color: COLORS.ink, fontSize: 15, fontWeight: '800' },
+  screen: { padding: 18, paddingBottom: 42, backgroundColor: COLORS.paper, flexGrow: 1 },
+  content: { width: '100%', maxWidth: 960, alignSelf: 'center', gap: 16 },
+  topBar: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandMark: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: COLORS.green },
+  brandName: { color: COLORS.ink, fontSize: 14, fontWeight: '900', letterSpacing: 1.5 },
+  brandCaption: { marginTop: 3, color: COLORS.muted, fontSize: 8, fontWeight: '800', letterSpacing: 1.2 },
+  closeButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  closeText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
+  hero: { padding: 20, borderRadius: 19, backgroundColor: COLORS.green, gap: 10 },
+  heroLabel: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  heroLabelText: { color: '#D5E6DA', fontSize: 9, fontWeight: '800', letterSpacing: 1.3 },
+  title: { color: COLORS.white, fontSize: 27, fontWeight: '900' },
+  subtitle: { maxWidth: 620, color: '#D5E6DA', fontSize: 11, lineHeight: 17 },
+  queueBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 3, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, backgroundColor: '#FFFFFF1A' },
+  queueNumber: { color: COLORS.lime, fontSize: 16, fontWeight: '900' },
+  queueLabel: { color: COLORS.white, fontSize: 8, fontWeight: '800', letterSpacing: 0.8 },
+  card: { padding: 16, borderRadius: 17, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white, gap: 12 },
+  applicantHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  applicantAvatar: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: '#E8F0E4' },
+  applicantCopy: { flex: 1, gap: 4 },
+  applicant: { color: COLORS.ink, fontSize: 14, fontWeight: '900' },
   detail: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
-  sectionTitle: { marginTop: 4, color: COLORS.ink, fontSize: 11, fontWeight: '800' },
-  documentButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, borderRadius: 9, backgroundColor: '#F6F8F2' },
-  documentText: { flex: 1, color: COLORS.green, fontSize: 10, fontWeight: '700' },
-  noteInput: { minHeight: 58, padding: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 9, color: COLORS.ink, backgroundColor: COLORS.white, textAlignVertical: 'top', fontSize: 11 },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  approveButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, backgroundColor: COLORS.lime },
-  approveText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
-  changeButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, backgroundColor: '#FFF2E5' },
-  changeText: { color: '#8C551F', fontSize: 10, fontWeight: '800' },
-  rejectButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 9, backgroundColor: '#FBE9E8' },
-  rejectText: { color: COLORS.red, fontSize: 10, fontWeight: '800' },
-  error: { padding: 10, borderRadius: 10, color: COLORS.red, backgroundColor: '#FBE9E8', fontSize: 10, lineHeight: 15 },
-  empty: { alignItems: 'center', padding: 20, borderRadius: 15, backgroundColor: COLORS.white },
-  emptyTitle: { marginTop: 7, color: COLORS.ink, fontSize: 14, fontWeight: '800' },
-  emptyCopy: { marginTop: 4, color: COLORS.muted, fontSize: 10, textAlign: 'center' },
-  disclaimer: { marginTop: 4, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
+  pendingBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 20, backgroundColor: '#FFF2E5' },
+  pendingDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.orange },
+  pendingText: { color: '#8C551F', fontSize: 8, fontWeight: '900' },
+  submittedRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  divider: { height: 1, backgroundColor: COLORS.line },
+  documentsHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionTitle: { color: COLORS.ink, fontSize: 12, fontWeight: '900' },
+  documentsList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  documentButton: { minHeight: 50, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 11, backgroundColor: '#FAFBF8', flexGrow: 1, flexShrink: 1, flexBasis: 220 },
+  documentIcon: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 9, backgroundColor: '#E8F0E4' },
+  documentText: { flex: 1, color: COLORS.green, fontSize: 10, fontWeight: '800' },
+  noteInput: { minHeight: 76, padding: 12, borderWidth: 1, borderColor: COLORS.line, borderRadius: 11, color: COLORS.ink, backgroundColor: '#FAFBF8', textAlignVertical: 'top', fontSize: 11 },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  approveButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 14, borderRadius: 10, backgroundColor: COLORS.green },
+  approveText: { color: COLORS.white, fontSize: 10, fontWeight: '900' },
+  changeButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 13, borderRadius: 10, backgroundColor: '#FFF2E5' },
+  changeText: { color: '#8C551F', fontSize: 10, fontWeight: '900' },
+  rejectButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 13, borderRadius: 10, backgroundColor: '#FBE9E8' },
+  rejectText: { color: COLORS.red, fontSize: 10, fontWeight: '900' },
+  error: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 12, borderRadius: 12, backgroundColor: '#FBE9E8' },
+  errorText: { flex: 1, color: COLORS.red, fontSize: 10, lineHeight: 15 },
+  loadingCard: { minHeight: 110, alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 15, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  processing: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 8 },
+  empty: { alignItems: 'center', padding: 28, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  emptyIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#E8F0E4' },
+  emptyTitle: { marginTop: 11, color: COLORS.ink, fontSize: 15, fontWeight: '900' },
+  emptyCopy: { marginTop: 5, color: COLORS.muted, fontSize: 10, lineHeight: 15, textAlign: 'center' },
+  disclaimerCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: 12, backgroundColor: '#ECEFE9' },
+  disclaimer: { flex: 1, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
 });
