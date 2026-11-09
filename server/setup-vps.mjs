@@ -1,4 +1,5 @@
 import { randomBytes, scrypt as scryptCallback } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { chmodSync, chownSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
@@ -9,6 +10,11 @@ const scrypt = promisify(scryptCallback);
 if (!stdin.isTTY) throw new Error('Run this setup command directly in the VPS terminal.');
 
 const envPath = '/etc/sawaari/api.env';
+const wwwDataUid = Number(execFileSync('id', ['-u', 'www-data'], { encoding: 'utf8' }).trim());
+const wwwDataGid = Number(execFileSync('id', ['-g', 'www-data'], { encoding: 'utf8' }).trim());
+if (!Number.isSafeInteger(wwwDataUid) || !Number.isSafeInteger(wwwDataGid)) {
+  throw new Error('Could not resolve the www-data user and group IDs.');
+}
 
 function question(prompt) {
   const terminal = createInterface({ input: stdin, output: stdout });
@@ -103,15 +109,15 @@ const contents = [
 ].join('\n');
 
 mkdirSync('/etc/sawaari', { recursive: true, mode: 0o750 });
-chownSync('/etc/sawaari', 0, 'www-data');
+chownSync('/etc/sawaari', 0, wwwDataGid);
 chmodSync('/etc/sawaari', 0o750);
 writeFileSync(envPath, contents, { mode: 0o640 });
-chownSync(envPath, 0, 'www-data');
+chownSync(envPath, 0, wwwDataGid);
 chmodSync(envPath, 0o640);
 mkdirSync('/var/lib/sawaari', { recursive: true, mode: 0o750 });
-chownSync('/var/lib/sawaari', 'www-data', 'www-data');
+chownSync('/var/lib/sawaari', wwwDataUid, wwwDataGid);
 chmodSync('/var/lib/sawaari', 0o750);
 mkdirSync('/var/lib/sawaari/private-documents', { recursive: true, mode: 0o700 });
-chownSync('/var/lib/sawaari/private-documents', 'www-data', 'www-data');
+chownSync('/var/lib/sawaari/private-documents', wwwDataUid, wwwDataGid);
 chmodSync('/var/lib/sawaari/private-documents', 0o700);
 console.log('Saved VPS database, SMTP, and admin settings to /etc/sawaari/api.env.');
