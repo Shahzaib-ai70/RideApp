@@ -420,6 +420,7 @@ async function adminDashboard() {
   const [counts, drivers, rides] = await Promise.all([
     pool.query(
       `select
+        (select count(*)::int from app_users) as total_users,
         (select count(*)::int from driver_applications where status = 'pending') as pending_applications,
         (select count(*)::int from driver_applications where status = 'approved') as approved_drivers,
         (select count(*)::int from driver_presence dp join driver_applications da on da.user_id = dp.user_id
@@ -624,6 +625,43 @@ async function route(request, response, url) {
     if (!isAdminSession(request)) throw fail('Admin sign-in is required.', 401);
     if (method === 'GET' && pathname === '/api/admin/dashboard') {
       sendJson(response, 200, await adminDashboard());
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/admin/users') {
+      const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
+      const requestedOffset = Number(url.searchParams.get('offset') ?? 0);
+      const search = (url.searchParams.get('search') ?? '').trim().slice(0, 120);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100
+        || !Number.isSafeInteger(requestedOffset) || requestedOffset < 0) {
+        throw fail('Invalid user-list page.');
+      }
+      const searchPattern = search
+        ? `%${search.replace(/[\\%_]/g, '\\$&')}%`
+        : null;
+      const [count, users] = await Promise.all([
+        pool.query(
+          `select count(*)::int as total
+           from app_users
+           where $1::text is null or email ilike $1 escape '\\' or display_name ilike $1 escape '\\'`,
+          [searchPattern],
+        ),
+        pool.query(
+          `select u.id as user_id, u.email, u.display_name, u.email_verified_at, u.created_at,
+                  da.status as driver_status
+           from app_users u
+           left join driver_applications da on da.user_id = u.id
+           where $1::text is null or u.email ilike $1 escape '\\' or u.display_name ilike $1 escape '\\'
+           order by u.created_at desc, u.id
+           limit $2 offset $3`,
+          [searchPattern, requestedLimit, requestedOffset],
+        ),
+      ]);
+      sendJson(response, 200, {
+        users: users.rows,
+        total: count.rows[0].total,
+        limit: requestedLimit,
+        offset: requestedOffset,
+      });
       return;
     }
     if (method === 'GET' && pathname === '/api/admin/review-queue') {

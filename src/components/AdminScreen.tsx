@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import AdminDashboard from './AdminDashboard';
 import DriverReviewConsole from './DriverReviewConsole';
+import AdminUserConsole from './AdminUserConsole';
 import { adminApi } from '../lib/adminApi';
 
 const COLORS = {
@@ -31,6 +32,7 @@ export default function AdminScreen() {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [signingIn, setSigningIn] = useState(false);
@@ -196,6 +198,9 @@ export default function AdminScreen() {
   if (showReviews) {
     return <DriverReviewConsole onClose={() => setShowReviews(false)} />;
   }
+  if (showUsers) {
+    return <AdminUserConsole onClose={() => setShowUsers(false)} />;
+  }
 
   return (
     <AdminDashboard
@@ -203,6 +208,7 @@ export default function AdminScreen() {
         void signOut().then(() => router.replace('/'));
       }}
       onOpenReviews={() => setShowReviews(true)}
+      onOpenUsers={() => setShowUsers(true)}
     />
   );
 }

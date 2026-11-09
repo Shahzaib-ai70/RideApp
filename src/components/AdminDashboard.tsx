@@ -26,6 +26,7 @@ const COLORS = {
 
 type Summary = {
   pendingApplications: number;
+  totalUsers: number;
   approvedDrivers: number;
   onlineDrivers: number;
   searchingRides: number;
@@ -55,6 +56,7 @@ type LiveRide = {
 
 const EMPTY_SUMMARY: Summary = {
   pendingApplications: 0,
+  totalUsers: 0,
   approvedDrivers: 0,
   onlineDrivers: 0,
   searchingRides: 0,
@@ -102,9 +104,11 @@ function formatTime(value: string) {
 export default function AdminDashboard({
   onClose,
   onOpenReviews,
+  onOpenUsers,
 }: {
   onClose: () => void;
   onOpenReviews: () => void;
+  onOpenUsers: () => void;
 }) {
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [drivers, setDrivers] = useState<LiveDriver[]>([]);
@@ -135,6 +139,7 @@ export default function AdminDashboard({
       const row = data.summary;
       const counts = [
         row.pending_applications,
+        row.total_users,
         row.approved_drivers,
         row.online_drivers,
         row.searching_rides,
@@ -154,11 +159,12 @@ export default function AdminDashboard({
 
       setSummary({
         pendingApplications: counts[0] ?? 0,
-        approvedDrivers: counts[1] ?? 0,
-        onlineDrivers: counts[2] ?? 0,
-        searchingRides: counts[3] ?? 0,
-        activeRides: counts[4] ?? 0,
-        completedToday: counts[5] ?? 0,
+        totalUsers: counts[1] ?? 0,
+        approvedDrivers: counts[2] ?? 0,
+        onlineDrivers: counts[3] ?? 0,
+        searchingRides: counts[4] ?? 0,
+        activeRides: counts[5] ?? 0,
+        completedToday: counts[6] ?? 0,
       });
       setDrivers(data.drivers);
       setRides(data.rides);
@@ -197,6 +203,7 @@ export default function AdminDashboard({
 
   const metrics: { label: string; value: number; icon: keyof typeof Ionicons.glyphMap; accent?: boolean }[] = [
     { label: 'Waiting for review', value: summary.pendingApplications, icon: 'document-text-outline', accent: true },
+    { label: 'Registered users', value: summary.totalUsers, icon: 'people-outline' },
     { label: 'Approved drivers', value: summary.approvedDrivers, icon: 'shield-checkmark-outline' },
     { label: 'Drivers online', value: summary.onlineDrivers, icon: 'radio-outline' },
     { label: 'Searching rides', value: summary.searchingRides, icon: 'search-outline' },
@@ -266,6 +273,19 @@ export default function AdminDashboard({
           </View>
           <View style={styles.reviewCount}>
             <Text style={styles.reviewCountText}>{loading ? '—' : summary.pendingApplications}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.green} />
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={onOpenUsers} style={styles.usersButton}>
+          <View style={styles.usersIcon}>
+            <Ionicons name="people-outline" size={20} color={COLORS.green} />
+          </View>
+          <View style={styles.reviewCopy}>
+            <Text style={styles.reviewButtonText}>All registered users</Text>
+            <Text style={styles.reviewSubtitle}>View rider accounts and driver application status</Text>
+          </View>
+          <View style={styles.reviewCount}>
+            <Text style={styles.reviewCountText}>{loading ? '—' : summary.totalUsers}</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.green} />
         </Pressable>
@@ -406,7 +426,9 @@ const styles = StyleSheet.create({
   updatedText: { color: '#D5E6DA', fontSize: 9 },
   heroHint: { marginLeft: 'auto', color: '#B5C9BE', fontSize: 9 },
   reviewButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: '#DDE8D6', borderRadius: 15, backgroundColor: '#F0F6E9' },
+  usersButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: COLORS.line, borderRadius: 15, backgroundColor: COLORS.white },
   reviewIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: COLORS.lime },
+  usersIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#E8F0E4' },
   reviewCopy: { flex: 1, gap: 4 },
   reviewButtonText: { color: COLORS.green, fontSize: 13, fontWeight: '900' },
   reviewSubtitle: { color: COLORS.muted, fontSize: 10 },
