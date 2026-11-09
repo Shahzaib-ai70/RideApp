@@ -115,6 +115,32 @@ The GitHub Actions workflow builds the web app, typechecks and lints it, deploys
 
 Do not add database, SMTP, admin, or PostgreSQL credentials to GitHub Actions. They belong only in `/etc/sawaari/api.env` on the VPS. After deployment, test `/`, `/drive`, `/trips`, `/profile`, `/auth/confirm`, `/admin`, and `/api/health`.
 
+### Faster first load on mobile
+
+Enable gzip in the active Nginx `http` configuration so large JavaScript and CSS assets are compressed over the network. On Ubuntu VPS installations where `/etc/nginx/nginx.conf` includes `/etc/nginx/conf.d/*.conf`, install this once:
+
+```sh
+sudo tee /etc/nginx/conf.d/sawaari-gzip.conf >/dev/null <<'EOF'
+gzip on;
+gzip_vary on;
+gzip_min_length 1024;
+gzip_comp_level 5;
+gzip_types text/plain text/css application/json application/javascript text/javascript application/xml text/xml image/svg+xml;
+EOF
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+If Nginx reports that gzip directives are not allowed in this file, remove the snippet and put the same directives inside the `http { ... }` block in `/etc/nginx/nginx.conf`. Verify compression with:
+
+```sh
+asset=$(curl -fsS https://sawaari.online/ | grep -oE '/_expo/static/js/web/__common-[^"]+\.js' | head -n 1)
+test -n "$asset"
+curl -sSI -H 'Accept-Encoding: gzip' "https://sawaari.online$asset" | grep -iE 'content-encoding|vary'
+```
+
+The response should include `Content-Encoding: gzip`. A deployment rebuilds the app assets, but gzip is a separate one-time Nginx setting.
+
 For Android/iOS builds, set `EXPO_PUBLIC_API_URL=https://sawaari.online/api` in the build environment and rebuild the app. Native sessions are kept in Expo SecureStore; web sessions use an HttpOnly Secure cookie.
 
 ## Features and current limitations
