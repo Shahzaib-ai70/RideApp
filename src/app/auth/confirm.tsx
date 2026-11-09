@@ -8,12 +8,23 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiRequest } from '../../lib/api';
+import { pageMetadata } from '../../lib/seo';
+import type { Metadata } from 'expo-router/server';
 
 const GREEN = '#0E4E3D';
 const INK = '#172621';
 const MUTED = '#75817B';
 const LINE = '#E8EBE4';
 const WHITE = '#FFFFFF';
+
+export function generateMetadata(): Metadata {
+  return pageMetadata(
+    'Confirm your account | Sawaari',
+    'Confirm your Sawaari account email address.',
+    '/auth/confirm',
+    true,
+  );
+}
 
 export default function ConfirmAccountRoute() {
   const params = useLocalSearchParams<{

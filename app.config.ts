@@ -7,11 +7,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ...config,
     name: 'Sawaari',
     slug: 'sawaari-pakistan',
+    description: 'Book rides in Pakistan and apply to drive with Sawaari.',
     scheme: 'sawaari',
     platforms: ['ios', 'android', 'web'],
     web: {
       ...config.web,
       output: 'static',
+      name: 'Sawaari Pakistan',
+      shortName: 'Sawaari',
+      description: 'Book rides in Pakistan and apply to drive with Sawaari.',
     },
     ios: {
       ...config.ios,
