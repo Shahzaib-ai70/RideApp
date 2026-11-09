@@ -14,15 +14,15 @@ import {
 import { apiRequest } from '../lib/api';
 
 const COLORS = {
-  ink: '#172621',
-  muted: '#75817B',
-  green: '#0E4E3D',
-  lime: '#C8F169',
-  paper: '#F6F7F1',
-  line: '#E8EBE4',
+  ink: '#172B3A',
+  muted: '#667785',
+  green: '#245B8F',
+  lime: '#DCEAF5',
+  paper: '#F4F7FA',
+  line: '#DFE7EE',
   white: '#FFFFFF',
   red: '#C34242',
-  orange: '#EF9B54',
+  orange: '#D98A3C',
 };
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'] as const;
@@ -328,14 +328,14 @@ const styles = StyleSheet.create({
   input: { minHeight: 44, paddingHorizontal: 11, borderWidth: 1, borderColor: COLORS.line, borderRadius: 10, color: COLORS.ink, backgroundColor: COLORS.white },
   vehicleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   vehicleButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, backgroundColor: COLORS.paper },
-  vehicleSelected: { backgroundColor: '#E5F0DC', borderWidth: 1, borderColor: COLORS.green },
+  vehicleSelected: { backgroundColor: '#EAF1F7', borderWidth: 1, borderColor: COLORS.green },
   vehicleText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   vehicleTextSelected: { color: COLORS.green },
   documentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.line },
   documentCopy: { flex: 1, gap: 3 },
   documentTitle: { color: COLORS.ink, fontSize: 11, fontWeight: '700' },
   documentDetail: { color: COLORS.muted, fontSize: 9, lineHeight: 13 },
-  chooseButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, backgroundColor: '#E7F3E2' },
+  chooseButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, backgroundColor: '#EAF1F7' },
   chooseText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
   privacy: { color: COLORS.muted, fontSize: 9, lineHeight: 14 },
   error: { padding: 10, borderRadius: 10, color: COLORS.red, backgroundColor: '#FBE9E8', fontSize: 10, lineHeight: 15 },
@@ -346,7 +346,7 @@ const styles = StyleSheet.create({
   disclaimer: { color: COLORS.muted, fontSize: 9, lineHeight: 14 },
   statusCard: { padding: 16, alignItems: 'center', borderWidth: 1, borderColor: COLORS.line, borderRadius: 16, backgroundColor: COLORS.white, gap: 9 },
   statusIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#FFF2E5' },
-  approvedIcon: { backgroundColor: '#E7F3E2' },
+  approvedIcon: { backgroundColor: '#EAF1F7' },
   statusTitle: { color: COLORS.ink, fontSize: 16, fontWeight: '800', textAlign: 'center' },
   reviewNoteBox: { padding: 11, borderRadius: 10, backgroundColor: '#FFF2E5', gap: 4 },
   reviewNoteHeading: { color: COLORS.ink, fontSize: 10, fontWeight: '800' },

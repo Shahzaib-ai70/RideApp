@@ -10,10 +10,10 @@ import {
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest, saveAccessToken } from '../lib/api';
 
-const GREEN = '#0E4E3D';
-const INK = '#172621';
-const MUTED = '#75817B';
-const LINE = '#E8EBE4';
+const GREEN = '#245B8F';
+const INK = '#172B3A';
+const MUTED = '#667785';
+const LINE = '#DFE7EE';
 const WHITE = '#FFFFFF';
 
 export default function AccountPanel() {
@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 11,
-    backgroundColor: '#C8F169',
+    backgroundColor: '#DCEAF5',
   },
   buttonText: { color: GREEN, fontWeight: '800', fontSize: 13 },
   linkButton: { alignSelf: 'center', padding: 6 },

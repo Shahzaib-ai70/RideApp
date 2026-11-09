@@ -10,13 +10,13 @@ import {
 } from 'react-native';
 
 const COLORS = {
-  ink: '#F7F8F5',
-  muted: '#B3B8B4',
-  green: '#0E4E3D',
-  lime: '#C8F169',
-  dark: '#151816',
-  card: '#202320',
-  line: '#343936',
+  ink: '#F7FAFC',
+  muted: '#AAB8C4',
+  green: '#245B8F',
+  lime: '#DCEAF5',
+  dark: '#162331',
+  card: '#213244',
+  line: '#34495C',
   white: '#FFFFFF',
 };
 
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.lime,
   },
   heroTitle: { color: COLORS.white, fontSize: 27, fontWeight: '900', letterSpacing: -0.5 },
-  heroSubtitle: { marginTop: 8, marginBottom: 18, color: '#DDE8DF', fontSize: 13, lineHeight: 19 },
+  heroSubtitle: { marginTop: 8, marginBottom: 18, color: '#D8E5EF', fontSize: 13, lineHeight: 19 },
   benefit: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 11 },
   benefitText: { flex: 1, color: COLORS.white, fontSize: 13, fontWeight: '600' },
   sectionTitle: {
@@ -186,13 +186,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#30382F',
+    backgroundColor: '#304A62',
   },
   choiceCopy: { flex: 1 },
   choiceTitle: { color: COLORS.ink, fontSize: 16, fontWeight: '800' },
   choiceDetail: { marginTop: 4, color: COLORS.muted, fontSize: 11, lineHeight: 16 },
   disabledCard: { opacity: 0.65 },
-  disabledChoiceIcon: { backgroundColor: '#2A2D2B' },
+  disabledChoiceIcon: { backgroundColor: '#2B3D4D' },
   disabledText: { color: '#C0C4C1' },
   comingSoon: {
     paddingHorizontal: 8,
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     color: COLORS.muted,
-    backgroundColor: '#353A36',
+    backgroundColor: '#344656',
     fontSize: 8,
     fontWeight: '900',
     letterSpacing: 0.8,

@@ -3,9 +3,9 @@ import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { RideMapProps } from './ride-map.types';
 
-const GREEN = '#0E4E3D';
+const GREEN = '#245B8F';
 const WHITE = '#FFFFFF';
-const ORANGE = '#EF9B54';
+const ORANGE = '#D98A3C';
 
 export default function RideMap({
   region,

@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
-const GREEN = '#0E4E3D';
-const MUTED = '#75817B';
+const GREEN = '#245B8F';
+const MUTED = '#667785';
 
 export default function TabLayout() {
   return (
@@ -14,7 +14,7 @@ export default function TabLayout() {
         tabBarStyle: {
           height: 60,
           paddingHorizontal: 12,
-          borderTopColor: '#E8EBE4',
+          borderTopColor: '#DFE7EE',
           backgroundColor: '#FFFFFF',
         },
         tabBarLabelStyle: { fontSize: 9, fontWeight: '600' },

@@ -88,14 +88,14 @@ const FARE_RATES: Record<Vehicle, { base: number; perKm: number }> = {
   Premium: { base: 200, perKm: 80 },
 };
 const COLORS = {
-  ink: '#172621',
-  muted: '#75817B',
-  green: '#0E4E3D',
-  lime: '#C8F169',
-  paper: '#F6F7F1',
-  line: '#E8EBE4',
+  ink: '#172B3A',
+  muted: '#667785',
+  green: '#245B8F',
+  lime: '#DCEAF5',
+  paper: '#F4F7FA',
+  line: '#DFE7EE',
   white: '#FFFFFF',
-  orange: '#EF9B54',
+  orange: '#D98A3C',
   red: '#C34242',
 };
 
@@ -822,7 +822,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               value={mapPickAddress}
               onChangeText={setMapPickAddress}
               placeholder="House number, street, or landmark (optional)"
-              placeholderTextColor="#89948D"
+              placeholderTextColor="#8996A1"
               returnKeyType="done"
               style={styles.mapPickInput}
             />
@@ -953,7 +953,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               setSearchingPlaces(false);
             }}
             placeholder="Search any city, address, or landmark"
-            placeholderTextColor="#89948D"
+            placeholderTextColor="#8996A1"
             style={styles.searchInput}
           />
           {searchQuery.length > 0 ? (
@@ -1212,7 +1212,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   setCustomOffer(true);
                 }}
                 placeholder="Enter fare"
-                placeholderTextColor="#A4ADA7"
+                placeholderTextColor="#95A2AD"
                 maxLength={7}
                 returnKeyType="done"
               />
@@ -1426,7 +1426,15 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         </View>
       </View>
       <View style={styles.profileMenu}>
-        <View style={styles.menuItem}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Language settings, English"
+          onPress={() => showMessage(
+            'Language',
+            'English is currently available. Urdu language support is not ready yet.',
+          )}
+          style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+        >
           <View style={styles.menuIcon}>
             <Ionicons name="language-outline" size={19} color={COLORS.green} />
           </View>
@@ -1435,34 +1443,50 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             <Text style={styles.menuSubtitle}>English</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
-        </View>
+        </Pressable>
         <View style={styles.menuDivider} />
-        <View style={styles.menuItem}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open safety centre"
+          onPress={() => showMessage(
+            'Safety centre',
+            'Driver applications are reviewed before approval. Sawaari does not yet provide SOS, live trip tracking, or emergency-response support. If you are in immediate danger, contact local emergency services.',
+          )}
+          style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+        >
           <View style={styles.menuIcon}>
             <Ionicons name="shield-checkmark-outline" size={19} color={COLORS.green} />
           </View>
           <View style={styles.menuCopy}>
             <Text style={styles.menuTitle}>Safety centre</Text>
-            <Text style={styles.menuSubtitle}>Safety features are not configured yet</Text>
+            <Text style={styles.menuSubtitle}>Driver review and safety information</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
-        </View>
+        </Pressable>
         <View style={styles.menuDivider} />
-        <View style={styles.menuItem}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open help and support"
+          onPress={() => showMessage(
+            'Help & support',
+            'Sawaari support chat and a support phone line are not connected yet. For sign-in issues, use the same confirmed email account registered with Sawaari.',
+          )}
+          style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+        >
           <View style={styles.menuIcon}>
             <Ionicons name="help-buoy-outline" size={19} color={COLORS.green} />
           </View>
           <View style={styles.menuCopy}>
             <Text style={styles.menuTitle}>Help & support</Text>
-            <Text style={styles.menuSubtitle}>Support service is not connected yet</Text>
+            <Text style={styles.menuSubtitle}>View available support information</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
-        </View>
+        </Pressable>
       </View>
       <View style={styles.profileFootnote}>
         <Ionicons name="information-circle-outline" size={18} color={COLORS.orange} />
         <Text style={styles.profileFootnoteText}>
-          Live driver search requires a confirmed account. Safety, identity checks and payments are not connected.
+          Driver applications are reviewed. Emergency support and online payments are not available yet.
         </Text>
       </View>
     </View>
@@ -1506,7 +1530,7 @@ const styles = StyleSheet.create({
     height: 35,
     paddingHorizontal: 11,
     borderRadius: 13,
-    backgroundColor: '#E8EFE4',
+    backgroundColor: '#EAF1F7',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
@@ -1541,9 +1565,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     overflow: 'hidden',
     borderRadius: 25,
-    backgroundColor: '#DEE7DF',
+    backgroundColor: '#E4EBF1',
     borderWidth: 1,
-    borderColor: '#DFE5DC',
+    borderColor: '#DFE7EE',
   },
   mapFrameWide: {
     marginHorizontal: 0,
@@ -1562,7 +1586,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: COLORS.white,
     elevation: 3,
-    shadowColor: '#1C2A21',
+    shadowColor: '#172B3A',
     shadowOpacity: 0.12,
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
@@ -1581,7 +1605,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: COLORS.white,
     elevation: 4,
-    shadowColor: '#1C2A21',
+    shadowColor: '#172B3A',
     shadowOpacity: 0.14,
     shadowRadius: 7,
     shadowOffset: { width: 0, height: 3 },
@@ -1636,7 +1660,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     backgroundColor: COLORS.white,
     elevation: 5,
-    shadowColor: '#1C2A21',
+    shadowColor: '#172B3A',
     shadowOpacity: 0.16,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
@@ -1648,7 +1672,7 @@ const styles = StyleSheet.create({
     marginTop: 9,
     paddingHorizontal: 11,
     borderWidth: 1,
-    borderColor: '#DDE4D9',
+    borderColor: '#DFE7EE',
     borderRadius: 11,
     color: COLORS.ink,
     fontSize: 12,
@@ -1728,12 +1752,12 @@ const styles = StyleSheet.create({
     minHeight: 54,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#DDE4D9',
+    borderColor: '#DFE7EE',
     borderRadius: 15,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#F8FAF6',
+    backgroundColor: '#F6F9FC',
   },
   searchInput: {
     flex: 1,
@@ -1764,12 +1788,12 @@ const styles = StyleSheet.create({
     marginTop: 7,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#DDE4D9',
+    borderColor: '#DFE7EE',
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#F8FAF6',
+    backgroundColor: '#F6F9FC',
   },
   searchMapPickText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
   searchResults: { flex: 1, marginTop: 8 },
@@ -1797,7 +1821,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EFF4EA',
+    backgroundColor: '#EAF1F7',
   },
   searchResultCopy: { flex: 1 },
   searchResultTitle: { color: COLORS.ink, fontSize: 12, fontWeight: '700', lineHeight: 17 },
@@ -1902,7 +1926,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.green,
   },
-  routeConnector: { width: 1, flex: 1, minHeight: 16, borderStyle: 'dashed', borderWidth: 0.7, borderColor: '#A8B4AA' },
+  routeConnector: { width: 1, flex: 1, minHeight: 16, borderStyle: 'dashed', borderWidth: 0.7, borderColor: '#A8B6C2' },
   routeSquare: { width: 8, height: 8, borderRadius: 2, backgroundColor: COLORS.orange },
   routeFields: { flex: 1 },
   routeField: {
@@ -1917,7 +1941,7 @@ const styles = StyleSheet.create({
   routeFieldCopy: { flex: 1, paddingRight: 8 },
   routeCaption: { fontSize: 9, fontWeight: '800', letterSpacing: 1.1, color: COLORS.muted },
   routeValue: { marginTop: 4, fontSize: 12, fontWeight: '600', color: COLORS.ink },
-  routePlaceholder: { fontWeight: '500', color: '#89948D' },
+  routePlaceholder: { fontWeight: '500', color: '#8996A1' },
   routeDivider: { height: 1, marginLeft: 9, backgroundColor: COLORS.line },
   sectionHeader: { marginTop: 17, marginBottom: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: COLORS.ink, fontSize: 13, fontWeight: '800' },
@@ -1933,7 +1957,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.line,
     backgroundColor: COLORS.white,
   },
-  vehicleCardSelected: { borderWidth: 1.5, borderColor: COLORS.green, backgroundColor: '#EDF4E8' },
+  vehicleCardSelected: { borderWidth: 1.5, borderColor: COLORS.green, backgroundColor: '#EAF1F7' },
   vehicleName: { marginTop: 5, color: COLORS.ink, fontSize: 11, fontWeight: '700' },
   vehicleNameSelected: { color: COLORS.green },
   vehicleDetail: { marginTop: 2, color: COLORS.muted, fontSize: 9, fontWeight: '500' },
@@ -1955,7 +1979,7 @@ const styles = StyleSheet.create({
     height: 47,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#DDE4D9',
+    borderColor: '#DFE7EE',
     paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1980,7 +2004,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 12,
-    backgroundColor: '#F1F6EA',
+    backgroundColor: '#EFF5FA',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -2012,29 +2036,29 @@ const styles = StyleSheet.create({
   secondaryTitle: { color: COLORS.ink, fontSize: 27, fontWeight: '800', letterSpacing: -0.8 },
   secondarySubtitle: { marginTop: 4, color: COLORS.muted, fontSize: 12 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 35, paddingBottom: 65 },
-  emptyIcon: { width: 68, height: 68, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E9F1DF' },
+  emptyIcon: { width: 68, height: 68, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF1F7' },
   emptyTitle: { marginTop: 17, color: COLORS.ink, fontSize: 18, fontWeight: '800' },
   emptyCopy: { marginTop: 7, color: COLORS.muted, textAlign: 'center', fontSize: 12, lineHeight: 18 },
   secondaryButton: { marginTop: 19, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 13, backgroundColor: COLORS.lime, flexDirection: 'row', alignItems: 'center', gap: 8 },
   secondaryButtonText: { color: COLORS.green, fontSize: 12, fontWeight: '800' },
   loadingIndicator: { marginTop: 36 },
   tripList: { gap: 11, paddingBottom: 22 },
-  localNotice: { padding: 12, borderRadius: 12, backgroundColor: '#E9F1DF', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  localNotice: { padding: 12, borderRadius: 12, backgroundColor: '#EAF1F7', flexDirection: 'row', alignItems: 'center', gap: 8 },
   localNoticeText: { flex: 1, color: COLORS.green, fontSize: 10, fontWeight: '600' },
   tripCard: { padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
   tripCardHeader: { flexDirection: 'row', alignItems: 'center' },
-  tripVehicle: { width: 39, height: 39, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EFF4EA' },
+  tripVehicle: { width: 39, height: 39, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF1F7' },
   tripSummary: { flex: 1, marginLeft: 10 },
   tripVehicleName: { color: COLORS.ink, fontSize: 12, fontWeight: '800' },
   tripTime: { marginTop: 3, color: COLORS.muted, fontSize: 9 },
   draftBadge: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10, backgroundColor: '#FFF2E5' },
   draftText: { color: '#A96021', fontSize: 8, fontWeight: '800', letterSpacing: 0.7 },
-  liveBadge: { backgroundColor: '#E7F3E2' },
+  liveBadge: { backgroundColor: '#EAF1F7' },
   liveBadgeText: { color: COLORS.green },
   tripRoute: { marginTop: 13, flexDirection: 'row' },
   tripDots: { width: 18, alignItems: 'center', paddingTop: 3, paddingBottom: 4 },
   routeCircleSmall: { width: 8, height: 8, borderRadius: 5, borderWidth: 2, borderColor: COLORS.green },
-  tripConnector: { width: 1, flex: 1, minHeight: 20, marginVertical: 3, borderWidth: 0.7, borderStyle: 'dashed', borderColor: '#A8B4AA' },
+  tripConnector: { width: 1, flex: 1, minHeight: 20, marginVertical: 3, borderWidth: 0.7, borderStyle: 'dashed', borderColor: '#A8B6C2' },
   routeSquareSmall: { width: 7, height: 7, borderRadius: 2, backgroundColor: COLORS.orange },
   tripAddresses: { flex: 1, marginLeft: 7 },
   tripAddress: { minHeight: 23, color: COLORS.ink, fontSize: 10, fontWeight: '600' },
@@ -2043,32 +2067,33 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 11,
     borderRadius: 11,
-    backgroundColor: '#E7F3E2',
+    backgroundColor: '#EAF1F7',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   matchText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
-  nearbyDrivers: { marginTop: 12, padding: 11, borderRadius: 11, backgroundColor: '#F6F8F2', gap: 8 },
+  nearbyDrivers: { marginTop: 12, padding: 11, borderRadius: 11, backgroundColor: '#F4F7FA', gap: 8 },
   nearbyHeading: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
   nearbyDriver: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  nearbyAvatar: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E7F3E2' },
+  nearbyAvatar: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF1F7' },
   nearbyDriverName: { flex: 1, color: COLORS.ink, fontSize: 10, fontWeight: '700' },
   nearbyDistance: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
   nearbyHint: { color: COLORS.muted, fontSize: 9, lineHeight: 14 },
   cancelRideButton: { alignSelf: 'flex-start', paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, backgroundColor: '#FBE9E8' },
   cancelRideText: { color: COLORS.red, fontSize: 10, fontWeight: '700' },
-  noDrivers: { marginTop: 11, padding: 10, borderRadius: 10, color: COLORS.muted, backgroundColor: '#F6F8F2', fontSize: 10, lineHeight: 15 },
+  noDrivers: { marginTop: 11, padding: 10, borderRadius: 10, color: COLORS.muted, backgroundColor: '#F4F7FA', fontSize: 10, lineHeight: 15 },
   errorBanner: { padding: 11, borderRadius: 11, backgroundColor: '#FBE9E8', color: COLORS.red, fontSize: 11 },
   addressNotice: { marginTop: 6, color: '#A96021', fontSize: 9, lineHeight: 13 },
   profileCard: { padding: 15, borderRadius: 17, backgroundColor: COLORS.green, flexDirection: 'row', alignItems: 'center' },
   profileAvatar: { width: 47, height: 47, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.lime },
   profileCopy: { flex: 1, marginLeft: 12 },
   profileName: { color: COLORS.white, fontSize: 13, fontWeight: '800' },
-  profileSubtext: { marginTop: 4, color: '#D2E2D9', fontSize: 10, lineHeight: 15 },
+  profileSubtext: { marginTop: 4, color: '#D8E5EF', fontSize: 10, lineHeight: 15 },
   profileMenu: { marginTop: 15, paddingHorizontal: 13, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
   menuItem: { minHeight: 62, flexDirection: 'row', alignItems: 'center' },
-  menuIcon: { width: 35, height: 35, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EFF4EA' },
+  menuIcon: { width: 35, height: 35, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF1F7' },
+  menuItemPressed: { opacity: 0.72 },
   menuCopy: { flex: 1, marginLeft: 10 },
   menuTitle: { color: COLORS.ink, fontSize: 11, fontWeight: '700' },
   menuSubtitle: { marginTop: 3, color: COLORS.muted, fontSize: 9 },

@@ -60,15 +60,15 @@ type DriverDashboard = {
 
 const VEHICLES: Vehicle[] = ['Bike', 'Rickshaw', 'Car', 'Premium'];
 const COLORS = {
-  ink: '#172621',
-  muted: '#75817B',
-  green: '#0E4E3D',
-  lime: '#C8F169',
-  paper: '#F6F7F1',
-  line: '#E8EBE4',
+  ink: '#172B3A',
+  muted: '#667785',
+  green: '#245B8F',
+  lime: '#DCEAF5',
+  paper: '#F4F7FA',
+  line: '#DFE7EE',
   white: '#FFFFFF',
   red: '#C34242',
-  orange: '#EF9B54',
+  orange: '#D98A3C',
 };
 const APPLICATION_STATUSES: DriverApplicationStatus[] = [
   'pending',
@@ -750,7 +750,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EFF4EA',
+    backgroundColor: '#EAF1F7',
   },
   sectionIconLight: {
     width: 38,
@@ -769,7 +769,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 10,
-    backgroundColor: '#E8F3E4',
+    backgroundColor: '#EAF1F7',
   },
   verifiedText: { color: COLORS.green, fontSize: 9, fontWeight: '800' },
   infoDivider: { height: 1, marginVertical: 13, backgroundColor: COLORS.line },
@@ -781,7 +781,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     backgroundColor: COLORS.green,
   },
-  earningsLabel: { color: '#D5E6D8', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  earningsLabel: { color: '#D8E5EF', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   earningsAmount: { marginTop: 3, color: COLORS.white, fontSize: 25, fontWeight: '900' },
   earningsStats: {
     flexDirection: 'row',
@@ -793,7 +793,7 @@ const styles = StyleSheet.create({
   },
   earningsStat: { flex: 1 },
   earningsStatValue: { color: COLORS.white, fontSize: 14, fontWeight: '800' },
-  earningsStatLabel: { marginTop: 3, color: '#D5E6D8', fontSize: 9 },
+  earningsStatLabel: { marginTop: 3, color: '#D8E5EF', fontSize: 9 },
   earningsStatDivider: { width: 1, height: 30, marginHorizontal: 14, backgroundColor: 'rgba(255,255,255,0.2)' },
   paymentCard: {
     flexDirection: 'row',
@@ -819,7 +819,7 @@ const styles = StyleSheet.create({
   vehicleLabel: { marginTop: 14 },
   vehicleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
   vehicleButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, backgroundColor: COLORS.paper },
-  vehicleSelected: { backgroundColor: '#E5F0DC', borderWidth: 1, borderColor: COLORS.green },
+  vehicleSelected: { backgroundColor: '#EAF1F7', borderWidth: 1, borderColor: COLORS.green },
   vehicleText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   vehicleTextSelected: { color: COLORS.green },
   onlineButton: {

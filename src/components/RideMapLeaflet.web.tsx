@@ -169,7 +169,7 @@ function OpenStreetMapRoute({
     <Polyline
       key={routeKey}
       positions={route.path as LatLngExpression[]}
-      pathOptions={{ color: '#0E4E3D', opacity: 0.9, weight: 6 }}
+      pathOptions={{ color: '#245B8F', opacity: 0.9, weight: 6 }}
     />
   ) : null;
 }
@@ -309,7 +309,7 @@ function GoogleRideMap({
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 9,
-          fillColor: '#0E4E3D',
+          fillColor: '#245B8F',
           fillOpacity: 1,
           strokeColor: '#FFFFFF',
           strokeWeight: 3,
@@ -325,7 +325,7 @@ function GoogleRideMap({
           path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
           rotation: 45,
           scale: 7,
-          fillColor: '#EF9B54',
+          fillColor: '#D98A3C',
           fillOpacity: 1,
           strokeColor: '#FFFFFF',
           strokeWeight: 2,
@@ -353,7 +353,7 @@ function GoogleRideMap({
           }
           routeLines.current = route.createPolylines({
             polylineOptions: {
-              strokeColor: '#0E4E3D',
+              strokeColor: '#245B8F',
               strokeOpacity: 0.9,
               strokeWeight: 6,
               zIndex: 2,
