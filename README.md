@@ -12,7 +12,7 @@ The old `supabase/migrations/` SQL files are retained only as legacy reference. 
 
 Web builds use the same-origin `/api` route. Native builds call `EXPO_PUBLIC_API_URL` (defaults to `https://sawaari.online/api`). A running VPS API and PostgreSQL database are required for user accounts, email verification, driver documents, and shared rides. The preview does not create fake accounts or drivers.
 
-The map uses Photon, OpenStreetMap, and OSRM public demo services unless Google Maps is configured. Those community/demo services have usage limits and no production SLA; choose suitable commercial services before a production launch. Starter fare values are examples, not current market rates or live quotes.
+The map uses Photon, OpenStreetMap, and OSRM public demo services unless Google Maps is configured. Address search can only return house numbers present in OpenStreetMap data. Riders can choose an exact pickup or destination by moving the map pin and can enter a street address or house number manually; ride coordinates are saved even when reverse geocoding has no street address. Public OSM-backed services have usage limits and no production SLA; choose suitable commercial services before a production launch. Starter fare values are examples, not current market rates or live quotes.
 
 ## VPS backend setup
 

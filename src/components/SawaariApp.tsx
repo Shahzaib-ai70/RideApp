@@ -229,6 +229,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [pickupAddress, setPickupAddress] = useState('');
   const [destinationAddress, setDestinationAddress] = useState('');
   const [searchField, setSearchField] = useState<RouteField | null>(null);
+  const [mapPickField, setMapPickField] = useState<RouteField | null>(null);
+  const [mapPickAddress, setMapPickAddress] = useState('');
   const [searchScope, setSearchScope] = useState<SearchScope>('Pakistan');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceSuggestion[]>([]);
@@ -506,12 +508,50 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
 
   const beginPlaceSearch = (field: RouteField) => {
     Keyboard.dismiss();
+    setMapPickField(null);
     setSearchField(field);
     setSearchQuery(field === 'pickup' ? pickupAddress : destinationAddress);
     setSearchResults([]);
     setSearchingPlaces(false);
     setSearchError('');
     placeSearchSession.current = null;
+  };
+
+  const beginMapPick = () => {
+    if (!searchField) return;
+    Keyboard.dismiss();
+    setMapPickField(searchField);
+    setMapPickAddress(searchQuery.trim());
+    setSearchField(null);
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchingPlaces(false);
+    setSearchError('');
+  };
+
+  const confirmMapPick = () => {
+    if (!mapPickField) return;
+    const field = mapPickField;
+    const point = { latitude: region.latitude, longitude: region.longitude };
+    const address = mapPickAddress.trim();
+    const nextPickup = field === 'pickup' ? point : pickup;
+    const nextDestination = field === 'destination' ? point : destination;
+
+    if (field === 'pickup') {
+      setPickup(point);
+      setPickupAddress(address || 'Finding address...');
+    } else {
+      setDestination(point);
+      setDestinationAddress(address || 'Finding address...');
+    }
+
+    setRouteDistanceKm(null);
+    setRouteError('');
+    setAddressError('');
+    updateSuggestedFare(nextPickup, nextDestination, vehicle);
+    setMapPickField(null);
+    setMapPickAddress('');
+    if (!address) void lookupAddress(field, point);
   };
 
   const selectPlace = async (place: PlaceSuggestion) => {
@@ -746,23 +786,72 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           setOffer(distanceKm === null ? '' : String(estimateFare(distanceKm, vehicle)));
         }}
       />
+      {mapPickField ? (
+        <>
+          <View pointerEvents="none" style={styles.mapPinMarker}>
+            <Ionicons name="location" size={38} color={COLORS.green} />
+            <View style={styles.mapPinDot} />
+          </View>
+          <View style={styles.mapPickCard}>
+            <Text style={styles.mapPickTitle}>
+              Pin exact {mapPickField === 'pickup' ? 'pickup' : 'destination'}
+            </Text>
+            <Text style={styles.mapPickHint}>Move the map until the pin is over the exact entrance.</Text>
+            <TextInput
+              accessibilityLabel="Optional street address or house number"
+              autoCapitalize="words"
+              autoCorrect={false}
+              value={mapPickAddress}
+              onChangeText={setMapPickAddress}
+              placeholder="House number, street, or landmark (optional)"
+              placeholderTextColor="#89948D"
+              returnKeyType="done"
+              style={styles.mapPickInput}
+            />
+            <View style={styles.mapPickActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setMapPickField(null);
+                  setMapPickAddress('');
+                }}
+                style={styles.mapPickCancel}
+              >
+                <Text style={styles.mapPickCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Set ${mapPickField} at map pin`}
+                onPress={confirmMapPick}
+                style={styles.mapPickConfirm}
+              >
+                <Ionicons name="checkmark" size={17} color={COLORS.white} />
+                <Text style={styles.mapPickConfirmText}>Use this pin</Text>
+              </Pressable>
+            </View>
+          </View>
+        </>
+      ) : null}
       <View style={styles.mapLabel}>
         <Ionicons name="map" size={14} color={COLORS.green} />
         <Text style={styles.mapLabelText}>MAP VIEW</Text>
       </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Use my current location"
-        style={styles.myLocationButton}
-        onPress={useMyLocation}
-        disabled={loadingLocation}
-      >
-        {loadingLocation ? (
-          <ActivityIndicator size="small" color={COLORS.green} />
-        ) : (
-          <Ionicons name="navigate" size={19} color={COLORS.green} />
-        )}
-      </Pressable>
+      {!mapPickField ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Use my current location"
+          style={styles.myLocationButton}
+          onPress={useMyLocation}
+          disabled={loadingLocation}
+        >
+          {loadingLocation ? (
+            <ActivityIndicator size="small" color={COLORS.green} />
+          ) : (
+            <Ionicons name="navigate" size={19} color={COLORS.green} />
+          )}
+        </Pressable>
+      ) : null}
     </View>
   );
 
@@ -856,6 +945,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             );
           })}
         </View>
+        <Pressable
+          accessibilityRole="button"
+          onPress={beginMapPick}
+          style={styles.searchMapPickButton}
+        >
+          <Ionicons name="locate-outline" size={17} color={COLORS.green} />
+          <Text style={styles.searchMapPickText}>Can’t find the exact address? Pick it on the map</Text>
+        </Pressable>
         <ScrollView
           style={styles.searchResults}
           keyboardShouldPersistTaps="handled"
@@ -1421,6 +1518,81 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   mapLabelText: { fontSize: 9, fontWeight: '800', letterSpacing: 1, color: COLORS.ink },
+  mapPinMarker: {
+    position: 'absolute',
+    zIndex: 2,
+    top: '50%',
+    left: '50%',
+    width: 42,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginLeft: -21,
+    marginTop: -42,
+  },
+  mapPinDot: {
+    position: 'absolute',
+    bottom: 2,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: COLORS.white,
+    backgroundColor: COLORS.orange,
+  },
+  mapPickCard: {
+    position: 'absolute',
+    zIndex: 3,
+    left: 12,
+    right: 12,
+    bottom: 12,
+    padding: 13,
+    borderRadius: 17,
+    backgroundColor: COLORS.white,
+    elevation: 5,
+    shadowColor: '#1C2A21',
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  mapPickTitle: { color: COLORS.ink, fontSize: 13, fontWeight: '800' },
+  mapPickHint: { marginTop: 3, color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  mapPickInput: {
+    minHeight: 42,
+    marginTop: 9,
+    paddingHorizontal: 11,
+    borderWidth: 1,
+    borderColor: '#DDE4D9',
+    borderRadius: 11,
+    color: COLORS.ink,
+    fontSize: 12,
+  },
+  mapPickActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 9,
+  },
+  mapPickCancel: {
+    minHeight: 38,
+    paddingHorizontal: 13,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapPickCancelText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
+  mapPickConfirm: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 13,
+    borderRadius: 11,
+    backgroundColor: COLORS.green,
+  },
+  mapPickConfirmText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
   myLocationButton: {
     position: 'absolute',
     bottom: 14,
@@ -1501,6 +1673,19 @@ const styles = StyleSheet.create({
   searchScopeButtonSelected: { backgroundColor: COLORS.green },
   searchScopeText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   searchScopeTextSelected: { color: COLORS.white },
+  searchMapPickButton: {
+    minHeight: 42,
+    marginTop: 7,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#DDE4D9',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F8FAF6',
+  },
+  searchMapPickText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
   searchResults: { flex: 1, marginTop: 8 },
   searchLoading: { marginTop: 28 },
   searchMessage: {
