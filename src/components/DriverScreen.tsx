@@ -3,8 +3,6 @@ import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +16,7 @@ import type { DriverApplicationStatus, DriverApplicationSummary } from './Driver
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
 import type { MapPoint } from './ride-map.types';
+import { useInAppNotice } from './InAppNoticeProvider';
 
 type Vehicle = 'Bike' | 'Rickshaw' | 'Car' | 'Premium';
 type NearbyRequest = {
@@ -78,13 +77,9 @@ function isNearbyRequest(value: unknown): value is NearbyRequest {
     && typeof request.created_at === 'string';
 }
 
-function showMessage(title: string, message: string) {
-  if (Platform.OS === 'web') window.alert(`${title}\n\n${message}`);
-  else Alert.alert(title, message);
-}
-
 export default function DriverScreen() {
   const { configured, loading: authLoading, session } = useAuth();
+  const { notify, confirm } = useInAppNotice();
   const [displayName, setDisplayName] = useState('');
   const [vehicle, setVehicle] = useState<Vehicle>('Car');
   const [isOnline, setIsOnline] = useState(false);
@@ -99,6 +94,9 @@ export default function DriverScreen() {
   const watch = useRef<Location.LocationSubscription | null>(null);
   const mounted = useRef(true);
   const applicationLoadVersion = useRef(0);
+  const showMessage = useCallback((title: string, message: string) => {
+    notify({ title, message });
+  }, [notify]);
 
   const refreshApplication = useCallback(async () => {
     const loadVersion = ++applicationLoadVersion.current;
@@ -286,20 +284,12 @@ export default function DriverScreen() {
   };
 
   const acceptRequest = async (request: NearbyRequest) => {
-    const confirmed = Platform.OS === 'web'
-      ? window.confirm(
-        `Accept this ride request?\n\n${request.pickup_address} → ${request.destination_address}\nOffer: PKR ${request.offered_fare}`,
-      )
-      : await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          'Accept ride request?',
-          `${request.pickup_address} → ${request.destination_address}\nOffer: PKR ${request.offered_fare}`,
-          [
-            { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Accept', onPress: () => resolve(true) },
-          ],
-        );
-      });
+    const confirmed = await confirm({
+      title: 'Accept ride request?',
+      message: `${request.pickup_address} → ${request.destination_address}\nOffer: PKR ${request.offered_fare}`,
+      cancelLabel: 'Not now',
+      confirmLabel: 'Accept',
+    });
     if (!confirmed) return;
 
     setBusy(true);

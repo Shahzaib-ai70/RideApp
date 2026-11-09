@@ -3,11 +3,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import type { LocationGeocodedAddress } from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
   ActivityIndicator,
-  Alert,
   Keyboard,
   Pressable,
   Platform,
@@ -22,6 +21,7 @@ import {
 import RideMap from './RideMap';
 import type { MapPoint } from './ride-map.types';
 import { loadGoogleMaps } from './google-maps';
+import { useInAppNotice } from './InAppNoticeProvider';
 import AccountPanel from './AccountPanel';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
@@ -121,14 +121,6 @@ function estimateFare(distanceKm: number, rideVehicle: Vehicle) {
   return Math.ceil((base + distanceKm * perKm) / 10) * 10;
 }
 
-function showMessage(title: string, message: string) {
-  if (Platform.OS === 'web') {
-    window.alert(`${title}\n\n${message}`);
-  } else {
-    Alert.alert(title, message);
-  }
-}
-
 function addressOrCoordinates(address: string, point: Coordinate) {
   return address && address !== 'Finding address...' ? address : coordinatesLabel(point);
 }
@@ -220,6 +212,7 @@ function formatTime(dateString: string) {
 
 export default function SawaariApp({ screen }: { screen: Screen }) {
   const router = useRouter();
+  const { notify, confirm } = useInAppNotice();
   const { configured, session } = useAuth();
   const { width } = useWindowDimensions();
   const wideLayout = Platform.OS === 'web' && width >= 980;
@@ -243,6 +236,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [rides, setRides] = useState<Ride[]>([]);
   const [locationGranted, setLocationGranted] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
+  const [locationPromptVisible, setLocationPromptVisible] = useState(false);
+  const [locationCanAskAgain, setLocationCanAskAgain] = useState(true);
   const [loadingRides, setLoadingRides] = useState(true);
   const [storageError, setStorageError] = useState('');
   const [addressError, setAddressError] = useState('');
@@ -251,6 +246,9 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [nearbyDrivers, setNearbyDrivers] = useState<Record<string, NearbyDriver[]>>({});
   const [rideStatuses, setRideStatuses] = useState<Record<string, RideServerStatus>>({});
   const [matchingError, setMatchingError] = useState('');
+  const showMessage = useCallback((title: string, message: string) => {
+    notify({ title, message });
+  }, [notify]);
   const directDistanceKm = pickup && destination
     && (Math.abs(pickup.latitude - destination.latitude) >= 0.0001
       || Math.abs(pickup.longitude - destination.longitude) >= 0.0001)
@@ -428,7 +426,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     };
   }, [destination, pickup, searchField, searchQuery, searchScope]);
 
-  const updateSuggestedFare = (
+  const updateSuggestedFare = useCallback((
     nextPickup: Coordinate | null,
     nextDestination: Coordinate | null,
     nextVehicle: Vehicle,
@@ -444,14 +442,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     }
     const distance = estimateStraightLineDistance(nextPickup, nextDestination);
     setOffer(String(estimateFare(distance, nextVehicle)));
-  };
+  }, [customOffer]);
 
-  const focusMap = (point: Coordinate) => {
+  const focusMap = useCallback((point: Coordinate) => {
     const nextRegion = { ...point, latitudeDelta: 0.025, longitudeDelta: 0.025 };
     setRegion(nextRegion);
-  };
+  }, []);
 
-  const lookupAddress = async (field: RouteField, point: Coordinate) => {
+  const lookupAddress = useCallback(async (field: RouteField, point: Coordinate) => {
     try {
       const [address] = await Location.reverseGeocodeAsync(point);
       const label = formatAddress(address);
@@ -465,22 +463,29 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       else setDestinationAddress(label);
       setAddressError('Could not look up a street address. The selected map coordinates are still saved.');
     }
-  };
+  }, []);
 
-  const useMyLocation = async () => {
+  const locateCurrentPosition = useCallback(async (requestPermission = true) => {
     setLoadingLocation(true);
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
+      const permission = requestPermission
+        ? await Location.requestForegroundPermissionsAsync()
+        : await Location.getForegroundPermissionsAsync();
+      setLocationCanAskAgain(permission.canAskAgain);
       if (!permission.granted) {
         setLocationGranted(false);
-        showMessage(
-          'Location permission needed',
-          'Allow location access in your device settings to use your current position as pickup, or search for a pickup address.',
-        );
+        setLocationPromptVisible(true);
+        if (requestPermission) {
+          showMessage(
+            'Location permission needed',
+            'Allow location access in your browser or device settings to use your current position as pickup, or search for a pickup address.',
+          );
+        }
         return;
       }
 
       setLocationGranted(true);
+      setLocationPromptVisible(false);
       const result = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
@@ -496,15 +501,38 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       void lookupAddress('pickup', point);
       setSearchField(null);
       focusMap(point);
-    } catch {
+    } catch (error: unknown) {
       showMessage(
         'Could not get your location',
-        'Check that location services are enabled, or search for a pickup address.',
+        error instanceof Error
+          ? `${error.message} Check that location services are enabled, or search for a pickup address.`
+          : 'Check that location services are enabled, or search for a pickup address.',
       );
     } finally {
       setLoadingLocation(false);
     }
-  };
+  }, [destination, focusMap, lookupAddress, showMessage, updateSuggestedFare, vehicle]);
+
+  useEffect(() => {
+    if (screen !== 'Ride') return undefined;
+    let active = true;
+    void Location.getForegroundPermissionsAsync()
+      .then(async (permission) => {
+        if (!active) return;
+        setLocationCanAskAgain(permission.canAskAgain);
+        if (permission.granted) {
+          await locateCurrentPosition(false);
+        } else {
+          setLocationPromptVisible(true);
+        }
+      })
+      .catch(() => {
+        if (active) setLocationPromptVisible(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [screen, locateCurrentPosition]);
 
   const beginPlaceSearch = (field: RouteField) => {
     Keyboard.dismiss();
@@ -724,24 +752,13 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         showMessage('Could not send your request', detail);
       }
     };
-    const reviewMessage =
-      `${vehicle} · PKR ${parsedOffer}\n\nPickup: ${ride.pickupAddress}\n\nDestination: ${ride.destinationAddress}`;
-
-    if (Platform.OS === 'web') {
-      const action = configured ? 'Send request to nearby drivers' : 'Save this local draft';
-      if (window.confirm(`Review your ride request\n\n${reviewMessage}\n\n${action}?`)) {
-        await saveRequest();
-      }
-      return;
-    }
-
-    Alert.alert('Review your ride request', reviewMessage, [
-      { text: 'Change details', style: 'cancel' },
-      {
-        text: configured ? 'Send ride request' : 'Save local draft',
-        onPress: () => void saveRequest(),
-      },
-    ]);
+    const confirmed = await confirm({
+      title: 'Review your ride request',
+      message: `${vehicle} · PKR ${parsedOffer}\n\nPickup: ${ride.pickupAddress}\n\nDestination: ${ride.destinationAddress}`,
+      cancelLabel: 'Change details',
+      confirmLabel: configured ? 'Send ride request' : 'Save local draft',
+    });
+    if (confirmed) await saveRequest();
   };
 
   const cancelRide = (ride: Ride) => {
@@ -761,14 +778,15 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       setNearbyDrivers((current) => ({ ...current, [ride.id]: [] }));
     };
 
-    if (Platform.OS === 'web') {
-      if (window.confirm('Cancel this ride request?')) void cancel();
-      return;
-    }
-    Alert.alert('Cancel ride request?', 'Nearby drivers will no longer see this request.', [
-      { text: 'Keep request', style: 'cancel' },
-      { text: 'Cancel request', style: 'destructive', onPress: () => void cancel() },
-    ]);
+    void confirm({
+      title: 'Cancel ride request?',
+      message: 'Nearby drivers will no longer see this request.',
+      cancelLabel: 'Keep request',
+      confirmLabel: 'Cancel request',
+      destructive: true,
+    }).then((confirmed) => {
+      if (confirmed) void cancel();
+    });
   };
 
   const renderMap = () => (
@@ -833,6 +851,38 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           </View>
         </>
       ) : null}
+      {locationPromptVisible && !mapPickField ? (
+        <View style={styles.locationPrompt}>
+          <View style={styles.locationPromptCopy}>
+            <Text style={styles.locationPromptTitle}>Use your current location?</Text>
+            <Text style={styles.locationPromptText}>
+              {locationCanAskAgain
+                ? 'Allow location to set your pickup on the map.'
+                : 'Allow location for this site in your browser or device settings, then try again.'}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            disabled={loadingLocation || !locationCanAskAgain}
+            onPress={() => void locateCurrentPosition()}
+            style={styles.locationPromptButton}
+          >
+            {loadingLocation ? (
+              <ActivityIndicator size="small" color={COLORS.white} />
+            ) : (
+              <Text style={styles.locationPromptButtonText}>Enable</Text>
+            )}
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss location prompt"
+            onPress={() => setLocationPromptVisible(false)}
+            style={styles.locationPromptClose}
+          >
+            <Ionicons name="close" size={17} color={COLORS.muted} />
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.mapLabel}>
         <Ionicons name="map" size={14} color={COLORS.green} />
         <Text style={styles.mapLabelText}>MAP VIEW</Text>
@@ -842,7 +892,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           accessibilityRole="button"
           accessibilityLabel="Use my current location"
           style={styles.myLocationButton}
-          onPress={useMyLocation}
+          onPress={() => void locateCurrentPosition()}
           disabled={loadingLocation}
         >
           {loadingLocation ? (
@@ -1518,6 +1568,42 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   mapLabelText: { fontSize: 9, fontWeight: '800', letterSpacing: 1, color: COLORS.ink },
+  locationPrompt: {
+    position: 'absolute',
+    top: 60,
+    left: 12,
+    right: 12,
+    zIndex: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 11,
+    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    elevation: 4,
+    shadowColor: '#1C2A21',
+    shadowOpacity: 0.14,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  locationPromptCopy: { flex: 1 },
+  locationPromptTitle: { color: COLORS.ink, fontSize: 11, fontWeight: '800' },
+  locationPromptText: { marginTop: 3, color: COLORS.muted, fontSize: 9, lineHeight: 13 },
+  locationPromptButton: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.green,
+  },
+  locationPromptButtonText: { color: COLORS.white, fontSize: 10, fontWeight: '800' },
+  locationPromptClose: {
+    width: 28,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   mapPinMarker: {
     position: 'absolute',
     zIndex: 2,

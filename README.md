@@ -14,6 +14,8 @@ Web builds use the same-origin `/api` route. Native builds call `EXPO_PUBLIC_API
 
 The map uses Photon, OpenStreetMap, and OSRM public demo services unless Google Maps is configured. Address search can only return house numbers present in OpenStreetMap data. Riders can choose an exact pickup or destination by moving the map pin and can enter a street address or house number manually; ride coordinates are saved even when reverse geocoding has no street address. Public OSM-backed services have usage limits and no production SLA; choose suitable commercial services before a production launch. Starter fare values are examples, not current market rates or live quotes.
 
+On the Ride page, Sawaari centers the map on the rider when location permission has already been granted. Otherwise, an in-page prompt lets the rider request location access; browser/device permission is still required. Ride and driver alerts and confirmations are displayed inside Sawaari rather than browser alert dialogs. Browser push notifications are not configured.
+
 ## VPS backend setup
 
 The API uses PostgreSQL, Hostinger SMTP, private files on the VPS, a separate admin password, and rate-limited database-backed user sessions. Apply these steps on the VPS before deploying the new website, so the app's API routes are ready when the website changes.
