@@ -752,6 +752,45 @@ async function route(request, response, url) {
     return;
   }
 
+  if (method === 'GET' && pathname === '/api/driver/dashboard') {
+    const user = await requireUser(request);
+    const [application, summary, rides] = await Promise.all([
+      pool.query(
+        `select full_name, vehicle_type, vehicle_make, vehicle_model, vehicle_year,
+                status, review_note, submitted_at
+         from driver_applications where user_id=$1`,
+        [user.id],
+      ),
+      pool.query(
+        `select count(*) filter (where status='completed') as completed_rides,
+                coalesce(sum(offered_fare) filter (
+                  where status='completed' and cash_collected
+                ), 0)::text as cash_collected,
+                coalesce(sum(offered_fare) filter (
+                  where status='completed' and not cash_collected
+                ), 0)::text as cash_not_confirmed
+         from ride_requests where driver_id=$1`,
+        [user.id],
+      ),
+      pool.query(
+        `select id as request_id, pickup_address, destination_address, vehicle,
+                offered_fare, cash_collected, updated_at as completed_at
+         from ride_requests
+         where driver_id=$1 and status='completed'
+         order by updated_at desc limit 50`,
+        [user.id],
+      ),
+    ]);
+    sendJson(response, 200, {
+      profile: { display_name: user.display_name, email: user.email },
+      application: application.rows[0] ?? null,
+      summary: summary.rows[0],
+      recent_rides: rides.rows,
+      payment_method: 'cash',
+    });
+    return;
+  }
+
   if (method === 'POST' && pathname === '/api/driver/application') {
     const user = await requireUser(request);
     const upload = await parseDriverUpload(request, user.id);
@@ -937,10 +976,13 @@ async function route(request, response, url) {
     const user = await requireUser(request);
     const body = await readJson(request);
     if (!isUuid(body.request_id)) throw fail('Invalid ride request.');
+    if (body.cash_collected !== undefined && typeof body.cash_collected !== 'boolean') {
+      throw fail('Cash collection status must be true or false.');
+    }
     const result = await pool.query(
-      `update ride_requests set status='completed', updated_at=now()
+      `update ride_requests set status='completed', cash_collected=$3, updated_at=now()
        where id=$1 and driver_id=$2 and status='accepted' returning id`,
-      [body.request_id, user.id],
+      [body.request_id, user.id, body.cash_collected === true],
     );
     if (!result.rowCount) throw fail('This active ride could not be found.', 404);
     sendJson(response, 200, { success: true });

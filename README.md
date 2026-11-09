@@ -74,7 +74,7 @@ sudo systemctl enable --now sawaari-api
 sudo systemctl status sawaari-api
 ```
 
-The service also runs the idempotent schema migration at startup. PostgreSQL stores account password hashes, one-time email verification tokens, sessions, rides, driver presence, and review state. Identity documents are outside the web root, limited to 10 MB per file, and accessible only through short-lived admin links.
+The service also runs the idempotent schema migration at startup. PostgreSQL stores account password hashes, one-time email verification tokens, sessions, rides, driver presence, cash-collection confirmations, and review state. Identity documents are outside the web root, limited to 10 MB per file, and accessible only through short-lived admin links.
 
 ### 4. Configure Nginx and HTTPS
 
@@ -149,10 +149,11 @@ For Android/iOS builds, set `EXPO_PUBLIC_API_URL=https://sawaari.online/api` in 
 
 - Signup, password login, Hostinger email confirmation, and confirmation resend use the VPS API.
 - Riders can create and cancel ride requests; approved drivers can share foreground location, discover nearby requests, accept a request, and mark it complete.
+- The driver dashboard shows account and approved vehicle details, recent completed rides, and a driver-confirmed cash fare ledger. Cash is exchanged directly between rider and driver; the ledger does not process or transfer money. Bank, wallet, card, and electronic payout methods are not connected.
 - Drivers can submit four private verification documents; the independent admin login reviews applications and serves private documents through expiring links.
 - The database is fresh. Existing Supabase users and ride data are not migrated. Users must create new accounts and confirm them; old password hashes and documents remain only in the old Supabase project.
 - Configure and periodically test encrypted database and private-document backups before storing real user data.
-- Location updates run only while the driver app is open. The app does not yet include phone/SMS verification, payments, counter-offers, turn-by-turn navigation, background location, SOS/support, fraud monitoring, or government identity checks. Do not treat this MVP as ready for real passenger operations without the relevant safety, privacy, security, legal, and operational work.
+- Location updates run only while the driver app is open. The app does not yet include phone/SMS verification, electronic payments or payouts, counter-offers, turn-by-turn navigation, background location, SOS/support, fraud monitoring, or government identity checks. Do not treat this MVP as ready for real passenger operations without the relevant safety, privacy, security, legal, and operational work.
 - Public map/geocoding/routing services are best-effort. Select production providers and review their terms before commercial use.
 
 ## Driver verification and admin operations

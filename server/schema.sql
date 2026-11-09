@@ -84,11 +84,15 @@ create table if not exists ride_requests (
   destination_longitude double precision not null check (destination_longitude between -180 and 180),
   vehicle text not null check (vehicle in ('Bike', 'Rickshaw', 'Car', 'Premium')),
   offered_fare integer not null check (offered_fare between 1 and 1000000),
+  cash_collected boolean not null default false,
   status text not null default 'searching'
     check (status in ('searching', 'accepted', 'cancelled', 'completed')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table ride_requests
+  add column if not exists cash_collected boolean not null default false;
 
 create index if not exists ride_requests_searching_idx
   on ride_requests (vehicle, created_at desc) where status = 'searching';

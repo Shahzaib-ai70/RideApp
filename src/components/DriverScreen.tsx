@@ -29,6 +29,34 @@ type NearbyRequest = {
   distance_m: number;
   created_at: string;
 };
+type DriverRideHistory = {
+  request_id: string;
+  pickup_address: string;
+  destination_address: string;
+  vehicle: Vehicle;
+  offered_fare: number;
+  cash_collected: boolean;
+  completed_at: string;
+};
+type DriverDashboard = {
+  profile: { display_name: string; email: string };
+  application: {
+    full_name: string;
+    vehicle_type: Vehicle;
+    vehicle_make: string;
+    vehicle_model: string;
+    vehicle_year: number;
+    status: DriverApplicationStatus;
+    review_note: string;
+  } | null;
+  summary: {
+    completed_rides: number;
+    cash_collected: number;
+    cash_not_confirmed: number;
+  };
+  recent_rides: DriverRideHistory[];
+  payment_method: 'cash';
+};
 
 const VEHICLES: Vehicle[] = ['Bike', 'Rickshaw', 'Car', 'Premium'];
 const COLORS = {
@@ -77,6 +105,61 @@ function isNearbyRequest(value: unknown): value is NearbyRequest {
     && typeof request.created_at === 'string';
 }
 
+function finiteNumber(value: unknown): value is number | string {
+  return (typeof value === 'number' || typeof value === 'string')
+    && Number.isFinite(Number(value));
+}
+
+function formatPkr(amount: number) {
+  return `PKR ${Math.round(amount).toLocaleString()}`;
+}
+
+function dashboardNumber(value: number | string | undefined) {
+  return Number(value ?? 0);
+}
+
+function isDriverDashboard(value: unknown): value is DriverDashboard {
+  if (typeof value !== 'object' || value === null) return false;
+  const dashboard = value as Record<string, unknown>;
+  if (typeof dashboard.profile !== 'object' || dashboard.profile === null
+    || typeof dashboard.summary !== 'object' || dashboard.summary === null
+    || !Array.isArray(dashboard.recent_rides) || dashboard.payment_method !== 'cash') return false;
+
+  const profile = dashboard.profile as Record<string, unknown>;
+  const summary = dashboard.summary as Record<string, unknown>;
+  const application = dashboard.application;
+  const validApplication = application === null
+    || (typeof application === 'object'
+      && typeof (application as Record<string, unknown>).full_name === 'string'
+      && VEHICLES.includes((application as Record<string, unknown>).vehicle_type as Vehicle)
+      && typeof (application as Record<string, unknown>).vehicle_make === 'string'
+      && typeof (application as Record<string, unknown>).vehicle_model === 'string'
+      && typeof (application as Record<string, unknown>).vehicle_year === 'number'
+      && APPLICATION_STATUSES.includes(
+        (application as Record<string, unknown>).status as DriverApplicationStatus,
+      )
+      && typeof (application as Record<string, unknown>).review_note === 'string');
+
+  return typeof profile.display_name === 'string'
+    && typeof profile.email === 'string'
+    && validApplication
+    && finiteNumber(summary.completed_rides)
+    && finiteNumber(summary.cash_collected)
+    && finiteNumber(summary.cash_not_confirmed)
+    && dashboard.recent_rides.every((ride: unknown) => {
+      if (typeof ride !== 'object' || ride === null) return false;
+      const item = ride as Record<string, unknown>;
+      return typeof item.request_id === 'string'
+        && typeof item.pickup_address === 'string'
+        && typeof item.destination_address === 'string'
+        && VEHICLES.includes(item.vehicle as Vehicle)
+        && typeof item.offered_fare === 'number'
+        && Number.isFinite(item.offered_fare)
+        && typeof item.cash_collected === 'boolean'
+        && typeof item.completed_at === 'string';
+    });
+}
+
 export default function DriverScreen() {
   const { configured, loading: authLoading, session } = useAuth();
   const { notify, confirm } = useInAppNotice();
@@ -90,6 +173,9 @@ export default function DriverScreen() {
   const [application, setApplication] = useState<DriverApplicationSummary | null>(null);
   const [applicationLoading, setApplicationLoading] = useState(true);
   const [applicationError, setApplicationError] = useState('');
+  const [dashboard, setDashboard] = useState<DriverDashboard | null>(null);
+  const [dashboardError, setDashboardError] = useState('');
+  const [dashboardLoading, setDashboardLoading] = useState(true);
   const [lastPoint, setLastPoint] = useState<MapPoint | null>(null);
   const watch = useRef<Location.LocationSubscription | null>(null);
   const mounted = useRef(true);
@@ -97,6 +183,28 @@ export default function DriverScreen() {
   const showMessage = useCallback((title: string, message: string) => {
     notify({ title, message });
   }, [notify]);
+
+  const refreshDashboard = useCallback(async () => {
+    if (!session) {
+      setDashboard(null);
+      setDashboardLoading(false);
+      return;
+    }
+
+    setDashboardError('');
+    try {
+      const result: unknown = await apiRequest('/driver/dashboard');
+      if (!isDriverDashboard(result)) {
+        throw new Error('The server returned invalid driver dashboard data.');
+      }
+      setDashboard(result);
+      setDisplayName(result.profile.display_name);
+    } catch (error: unknown) {
+      setDashboardError(error instanceof Error ? error.message : 'Could not load driver account details.');
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, [session]);
 
   const refreshApplication = useCallback(async () => {
     const loadVersion = ++applicationLoadVersion.current;
@@ -143,6 +251,10 @@ export default function DriverScreen() {
       applicationLoadVersion.current += 1;
     };
   }, [refreshApplication]);
+
+  useEffect(() => {
+    void Promise.resolve().then(refreshDashboard);
+  }, [refreshDashboard]);
 
   useEffect(() => {
     if (!isOnline || !session) return undefined;
@@ -319,13 +431,21 @@ export default function DriverScreen() {
 
   const completeRide = async () => {
     if (!activeRide) return;
+    const cashReceived = await confirm({
+      title: 'Confirm cash payment',
+      message: `Mark this ride complete and record ${formatPkr(activeRide.offered_fare)} as cash received from the rider?`,
+      cancelLabel: 'Not yet',
+      confirmLabel: 'Cash received',
+    });
+    if (!cashReceived) return;
     setBusy(true);
     try {
       await apiRequest('/driver/complete', {
         method: 'POST',
-        body: JSON.stringify({ request_id: activeRide.request_id }),
+        body: JSON.stringify({ request_id: activeRide.request_id, cash_collected: true }),
       });
       setActiveRide(null);
+      await refreshDashboard();
       showMessage('Ride completed', 'This ride was marked complete.');
     } catch (error: unknown) {
       showMessage(
@@ -411,6 +531,87 @@ export default function DriverScreen() {
       <Text style={styles.subtitle}>
         Stay online with location enabled to receive matching ride requests within 10 km.
       </Text>
+      {dashboardLoading ? <ActivityIndicator color={COLORS.green} /> : null}
+      {dashboardError ? (
+        <View style={styles.error}>
+          <Text style={styles.errorText}>{dashboardError}</Text>
+          <Pressable onPress={() => void refreshDashboard()}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {dashboard ? (
+        <>
+          <View style={styles.card}>
+            <View style={styles.sectionHeading}>
+              <View style={styles.sectionIcon}>
+                <Ionicons name="person-outline" size={18} color={COLORS.green} />
+              </View>
+              <View style={styles.sectionHeadingCopy}>
+                <Text style={styles.cardTitle}>Driver account</Text>
+                <Text style={styles.cardSubtitle}>{dashboard.profile.email}</Text>
+              </View>
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="checkmark-circle" size={14} color={COLORS.green} />
+                <Text style={styles.verifiedText}>Approved</Text>
+              </View>
+            </View>
+            <View style={styles.infoDivider} />
+            <Text style={styles.accountName}>
+              {dashboard.application?.full_name || dashboard.profile.display_name || 'Driver'}
+            </Text>
+            {dashboard.application ? (
+              <Text style={styles.vehicleInfo}>
+                {dashboard.application.vehicle_year} {dashboard.application.vehicle_make}{' '}
+                {dashboard.application.vehicle_model} · {dashboard.application.vehicle_type}
+              </Text>
+            ) : null}
+            <Text style={styles.smallNote}>Identity and vehicle documents are verified by Sawaari admin.</Text>
+          </View>
+
+          <View style={styles.earningsCard}>
+            <View style={styles.sectionHeading}>
+              <View style={styles.sectionIconLight}>
+                <Ionicons name="wallet-outline" size={18} color={COLORS.white} />
+              </View>
+              <View style={styles.sectionHeadingCopy}>
+                <Text style={styles.earningsLabel}>CASH COLLECTED</Text>
+                <Text style={styles.earningsAmount}>
+                  {formatPkr(dashboardNumber(dashboard.summary.cash_collected))}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.earningsStats}>
+              <View style={styles.earningsStat}>
+                <Text style={styles.earningsStatValue}>
+                  {dashboardNumber(dashboard.summary.completed_rides).toLocaleString()}
+                </Text>
+                <Text style={styles.earningsStatLabel}>completed rides</Text>
+              </View>
+              <View style={styles.earningsStatDivider} />
+              <View style={styles.earningsStat}>
+                <Text style={styles.earningsStatValue}>
+                  {formatPkr(dashboardNumber(dashboard.summary.cash_not_confirmed))}
+                </Text>
+                <Text style={styles.earningsStatLabel}>cash not confirmed</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.paymentCard}>
+            <View style={styles.sectionIcon}>
+              <Ionicons name="cash-outline" size={18} color={COLORS.green} />
+            </View>
+            <View style={styles.sectionHeadingCopy}>
+              <Text style={styles.cardTitle}>Payment method</Text>
+              <Text style={styles.cardSubtitle}>Cash only · collect the fare directly from the rider.</Text>
+              <Text style={styles.smallNote}>
+                Bank, JazzCash, Easypaisa, card payments, and electronic payouts are not connected.
+              </Text>
+            </View>
+          </View>
+        </>
+      ) : null}
       {activeRide ? (
         <View style={styles.requestCard}>
           <Text style={styles.activeLabel}>ACTIVE RIDE</Text>
@@ -419,9 +620,12 @@ export default function DriverScreen() {
           <Text style={styles.routeText}>Pickup: {activeRide.pickup_address}</Text>
           <Text style={styles.routeText}>Drop-off: {activeRide.destination_address}</Text>
           <Text style={styles.routeText}>{activeRide.vehicle}</Text>
+          <Text style={styles.paymentHint}>
+            Payment: cash · Confirm only after the rider has paid the agreed fare.
+          </Text>
           <Pressable disabled={busy} onPress={() => void completeRide()} style={styles.acceptButton}>
             {busy ? <ActivityIndicator color={COLORS.green} /> : (
-              <Text style={styles.acceptText}>Mark ride complete</Text>
+              <Text style={styles.acceptText}>Confirm cash received & complete ride</Text>
             )}
           </Pressable>
         </View>
@@ -503,8 +707,30 @@ export default function DriverScreen() {
           </Pressable>
         </View>
       ))}
+      {dashboard?.recent_rides.length ? (
+        <View style={styles.historySection}>
+          <Text style={styles.cardTitle}>Completed rides</Text>
+          <Text style={styles.cardSubtitle}>Your latest completed trips and recorded cash fares.</Text>
+          {dashboard.recent_rides.map((ride) => (
+            <View key={ride.request_id} style={styles.historyRide}>
+              <View style={styles.historyRideCopy}>
+                <Text numberOfLines={1} style={styles.historyRoute}>
+                  {ride.pickup_address} → {ride.destination_address}
+                </Text>
+                <Text style={styles.historyMeta}>
+                  {ride.vehicle} · {new Date(ride.completed_at).toLocaleDateString()}
+                </Text>
+                <Text style={styles.historyPayment}>
+                  {ride.cash_collected ? 'Cash received' : 'Cash not confirmed'}
+                </Text>
+              </View>
+              <Text style={styles.historyFare}>{formatPkr(ride.offered_fare)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <Text style={styles.disclaimer}>
-        Driver onboarding, identity verification, rider contact, navigation, trip tracking, payments, and safety support are not yet production-ready. Do not use this MVP for real passenger trips.
+        Cash tracking is an in-app record, not a money transfer. Electronic payments, payouts, navigation, live trip tracking, and safety support are not connected. Do not use this MVP for real passenger trips.
       </Text>
     </ScrollView>
   );
@@ -516,6 +742,69 @@ const styles = StyleSheet.create({
   title: { color: COLORS.ink, fontSize: 27, fontWeight: '800', letterSpacing: -0.8 },
   subtitle: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },
   card: { padding: 15, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sectionHeadingCopy: { flex: 1 },
+  sectionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EFF4EA',
+  },
+  sectionIconLight: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  cardTitle: { color: COLORS.ink, fontSize: 14, fontWeight: '800' },
+  cardSubtitle: { marginTop: 3, color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: '#E8F3E4',
+  },
+  verifiedText: { color: COLORS.green, fontSize: 9, fontWeight: '800' },
+  infoDivider: { height: 1, marginVertical: 13, backgroundColor: COLORS.line },
+  accountName: { color: COLORS.ink, fontSize: 16, fontWeight: '800' },
+  vehicleInfo: { marginTop: 4, color: COLORS.green, fontSize: 12, fontWeight: '700' },
+  smallNote: { marginTop: 7, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
+  earningsCard: {
+    padding: 16,
+    borderRadius: 17,
+    backgroundColor: COLORS.green,
+  },
+  earningsLabel: { color: '#D5E6D8', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  earningsAmount: { marginTop: 3, color: COLORS.white, fontSize: 25, fontWeight: '900' },
+  earningsStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.2)',
+  },
+  earningsStat: { flex: 1 },
+  earningsStatValue: { color: COLORS.white, fontSize: 14, fontWeight: '800' },
+  earningsStatLabel: { marginTop: 3, color: '#D5E6D8', fontSize: 9 },
+  earningsStatDivider: { width: 1, height: 30, marginHorizontal: 14, backgroundColor: 'rgba(255,255,255,0.2)' },
+  paymentCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.white,
+  },
   label: { color: COLORS.ink, fontSize: 12, fontWeight: '800' },
   nameInput: {
     height: 45,
@@ -550,16 +839,39 @@ const styles = StyleSheet.create({
   noticeText: { flex: 1, color: COLORS.ink, fontSize: 11, lineHeight: 17 },
   loader: { flex: 1 },
   error: { padding: 11, borderRadius: 11, color: COLORS.red, backgroundColor: '#FBE9E8', fontSize: 11, lineHeight: 16 },
+  errorText: { color: COLORS.red, fontSize: 11, lineHeight: 16 },
+  retryText: { marginTop: 7, color: COLORS.green, fontSize: 11, fontWeight: '800' },
   empty: { alignItems: 'center', padding: 22, borderRadius: 16, backgroundColor: COLORS.white },
   emptyTitle: { marginTop: 9, color: COLORS.ink, fontSize: 14, fontWeight: '800' },
   emptyCopy: { marginTop: 4, color: COLORS.muted, fontSize: 11, textAlign: 'center' },
   requestCard: { padding: 15, borderRadius: 15, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white, gap: 8 },
+  paymentHint: { color: COLORS.orange, fontSize: 10, lineHeight: 15, fontWeight: '700' },
   requestTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   requestFare: { color: COLORS.green, fontSize: 18, fontWeight: '800' },
   activeLabel: { color: COLORS.green, fontSize: 10, fontWeight: '800', letterSpacing: 1.1 },
   distance: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   riderName: { color: COLORS.ink, fontSize: 12, fontWeight: '800' },
   routeText: { color: COLORS.muted, fontSize: 11, lineHeight: 16 },
+  historySection: {
+    padding: 15,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.white,
+  },
+  historyRide: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.line,
+  },
+  historyRideCopy: { flex: 1 },
+  historyRoute: { color: COLORS.ink, fontSize: 11, fontWeight: '700' },
+  historyMeta: { marginTop: 4, color: COLORS.muted, fontSize: 9 },
+  historyPayment: { marginTop: 4, color: COLORS.green, fontSize: 9, fontWeight: '700' },
+  historyFare: { color: COLORS.green, fontSize: 12, fontWeight: '800' },
   acceptButton: { minHeight: 42, marginTop: 4, borderRadius: 11, backgroundColor: COLORS.lime, alignItems: 'center', justifyContent: 'center' },
   acceptText: { color: COLORS.green, fontSize: 12, fontWeight: '800' },
   disclaimer: { marginTop: 10, color: COLORS.muted, fontSize: 10, lineHeight: 16 },
