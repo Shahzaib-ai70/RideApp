@@ -1,16 +1,16 @@
-import DriverScreen from '../../components/DriverScreen';
+import DriverModeScreen from '../../components/DriverModeScreen';
 import { pageMetadata } from '../../lib/seo';
 import type { Metadata } from 'expo-router/server';
 
 export function generateMetadata(): Metadata {
   return pageMetadata(
-    'Drive with Sawaari | Driver applications',
-    'Sign in to Sawaari and apply to drive. Driver applications are reviewed before drivers can accept ride requests.',
+    'Driver mode | Sawaari',
+    'Choose driver mode and continue to Sawaari driver onboarding.',
     '/drive',
     true,
   );
 }
 
-export default function DriverRoute() {
-  return <DriverScreen />;
+export default function DriverModeRoute() {
+  return <DriverModeScreen />;
 }

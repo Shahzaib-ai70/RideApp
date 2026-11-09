@@ -41,7 +41,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="drive"
         options={{
-          title: 'Drive',
+          title: 'Driver mode',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="car-sport-outline" size={size} color={String(color)} />
           ),

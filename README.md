@@ -16,6 +16,8 @@ The map uses Photon, OpenStreetMap, and OSRM public demo services unless Google 
 
 On the Ride page, Sawaari centers the map on the rider when location permission has already been granted. Otherwise, an in-page prompt lets the rider request location access; browser/device permission is still required. Ride and driver alerts and confirmations are displayed inside Sawaari rather than browser alert dialogs. Browser push notifications are not configured.
 
+The **Driver mode** tab opens a separate driver welcome screen. Choosing **Driver** continues to the existing sign-in, document application, approval, and driver dashboard flow; an existing Sawaari account is reused. Courier mode is shown as coming soon because delivery requests and courier onboarding are not implemented.
+
 ## VPS backend setup
 
 The API uses PostgreSQL, Hostinger SMTP, private files on the VPS, a separate admin password, and rate-limited database-backed user sessions. Apply these steps on the VPS before deploying the new website, so the app's API routes are ready when the website changes.
