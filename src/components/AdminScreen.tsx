@@ -14,6 +14,7 @@ import AdminDashboard from './AdminDashboard';
 import DriverReviewConsole from './DriverReviewConsole';
 import AdminUserConsole from './AdminUserConsole';
 import { adminApi } from '../lib/adminApi';
+import { withTimeout } from '../lib/withTimeout';
 
 const COLORS = {
   ink: '#172621',
@@ -71,7 +72,11 @@ export default function AdminScreen() {
   const checkAccess = useCallback(async () => {
     setCheckingAccess(true);
     try {
-      const { authenticated } = await adminApi<{ authenticated: boolean }>('/api/admin/session');
+      const { authenticated } = await withTimeout(
+        adminApi<{ authenticated: boolean }>('/api/admin/session'),
+        10000,
+        'The admin service did not respond in time. Check your connection and try again.',
+      );
       setIsAdmin(authenticated);
       setServiceUnavailable(false);
     } catch (accessError: unknown) {
