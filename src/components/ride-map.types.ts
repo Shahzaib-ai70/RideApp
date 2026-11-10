@@ -18,4 +18,7 @@ export type RideMapProps = {
   nearbyDrivers?: NearbyMapDriver[];
   acceptedDriverLocation?: MapPoint | null;
   acceptedDriverVehicle?: string | null;
+  acceptedDriverTitle?: string;
+  acceptedDriverDescription?: string;
+  followAcceptedDriver?: boolean;
 };

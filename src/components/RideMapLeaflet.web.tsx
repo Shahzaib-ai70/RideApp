@@ -92,16 +92,22 @@ function RegionSync({
   return null;
 }
 
-function FollowLiveDriver({ location }: { location: RideMapProps['acceptedDriverLocation'] }) {
+function FollowLiveDriver({
+  location,
+  follow,
+}: {
+  location: RideMapProps['acceptedDriverLocation'];
+  follow: boolean;
+}) {
   const map = useMap();
   const latitude = location?.latitude;
   const longitude = location?.longitude;
 
   useEffect(() => {
-    if (latitude === undefined || longitude === undefined) return;
+    if (!follow || latitude === undefined || longitude === undefined) return;
     const point = [latitude, longitude] as LatLngTuple;
     if (!map.getBounds().contains(point)) map.panTo(point, { animate: true, duration: 0.4 });
-  }, [latitude, longitude, map]);
+  }, [follow, latitude, longitude, map]);
 
   return null;
 }
@@ -211,6 +217,9 @@ function OpenStreetMapRideMap(props: RideMapProps) {
     destination,
     nearbyDrivers = [],
     acceptedDriverLocation,
+    acceptedDriverTitle = 'Your driver',
+    acceptedDriverDescription = 'Live driver location',
+    followAcceptedDriver = true,
     onRegionChange,
     onRouteDistanceChange,
   } = props;
@@ -231,7 +240,7 @@ function OpenStreetMapRideMap(props: RideMapProps) {
       />
       <MapRegionEvents onRegionChange={onRegionChange} />
       <RegionSync region={region} pickup={pickup} destination={destination} />
-      <FollowLiveDriver location={acceptedDriverLocation} />
+      <FollowLiveDriver location={acceptedDriverLocation} follow={followAcceptedDriver} />
       {pickup && <Marker position={[pickup.latitude, pickup.longitude]} icon={pinIcon('pickup')} />}
       {destination && (
         <Marker
@@ -251,7 +260,7 @@ function OpenStreetMapRideMap(props: RideMapProps) {
         <Marker
           position={[acceptedDriverLocation.latitude, acceptedDriverLocation.longitude]}
           icon={driverIcon(true, props.acceptedDriverVehicle ?? '')}
-          title="Your driver"
+          title={`${acceptedDriverTitle} · ${acceptedDriverDescription}`}
         />
       ) : null}
       <OpenStreetMapRoute
@@ -270,6 +279,9 @@ function GoogleRideMap({
   nearbyDrivers = [],
   acceptedDriverLocation,
   acceptedDriverVehicle,
+  acceptedDriverTitle = 'Your driver',
+  acceptedDriverDescription = 'Live driver location',
+  followAcceptedDriver = true,
   onRegionChange,
   onRouteDistanceChange,
 }: RideMapProps) {
@@ -354,13 +366,14 @@ function GoogleRideMap({
   }, [region.latitude, region.longitude, pickup, destination]);
 
   useEffect(() => {
-    if (!map.current || acceptedLatitude === undefined || acceptedLongitude === undefined) return;
+    if (!followAcceptedDriver || !map.current
+      || acceptedLatitude === undefined || acceptedLongitude === undefined) return;
     const point = new google.maps.LatLng(
       acceptedLatitude,
       acceptedLongitude,
     );
     if (!map.current.getBounds()?.contains(point)) map.current.panTo(point);
-  }, [acceptedLatitude, acceptedLongitude]);
+  }, [acceptedLatitude, acceptedLongitude, followAcceptedDriver]);
 
   useEffect(() => {
     const currentMap = map.current;
@@ -428,7 +441,7 @@ function GoogleRideMap({
           lat: acceptedDriverLocation.latitude,
           lng: acceptedDriverLocation.longitude,
         },
-        title: 'Your driver',
+        title: `${acceptedDriverTitle} · ${acceptedDriverDescription}`,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 17,
@@ -443,7 +456,16 @@ function GoogleRideMap({
         },
       }));
     }
-  }, [pickup, destination, mapReady, nearbyDrivers, acceptedDriverLocation, acceptedDriverVehicle]);
+  }, [
+    pickup,
+    destination,
+    mapReady,
+    nearbyDrivers,
+    acceptedDriverLocation,
+    acceptedDriverVehicle,
+    acceptedDriverTitle,
+    acceptedDriverDescription,
+  ]);
 
   useEffect(() => {
     const currentMap = map.current;

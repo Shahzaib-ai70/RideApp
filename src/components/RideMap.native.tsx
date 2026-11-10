@@ -15,19 +15,22 @@ export default function RideMap({
   nearbyDrivers = [],
   acceptedDriverLocation,
   acceptedDriverVehicle,
+  acceptedDriverTitle = 'Your driver',
+  acceptedDriverDescription = 'Live driver location',
+  followAcceptedDriver = true,
   locationGranted,
   onRegionChange,
 }: RideMapProps) {
   const map = useRef<MapView>(null);
 
   useEffect(() => {
-    if (!acceptedDriverLocation) return;
+    if (!acceptedDriverLocation || !followAcceptedDriver) return;
     map.current?.animateToRegion({
       ...acceptedDriverLocation,
       latitudeDelta: 0.02,
       longitudeDelta: 0.02,
     }, 500);
-  }, [acceptedDriverLocation]);
+  }, [acceptedDriverLocation, followAcceptedDriver]);
 
   return (
     <MapView
@@ -69,8 +72,8 @@ export default function RideMap({
       {acceptedDriverLocation ? (
         <Marker
           coordinate={acceptedDriverLocation}
-          title="Your driver"
-          description="Live driver location"
+          title={acceptedDriverTitle}
+          description={acceptedDriverDescription}
         >
           <View style={styles.liveDriverMarker}>
             <Ionicons name={vehicleIcon(acceptedDriverVehicle ?? '')} size={19} color={WHITE} />

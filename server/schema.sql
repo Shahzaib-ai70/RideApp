@@ -85,6 +85,9 @@ create table if not exists ride_requests (
   vehicle text not null check (vehicle in ('Bike', 'Rickshaw', 'Car', 'Premium')),
   offered_fare integer not null check (offered_fare between 1 and 1000000),
   cash_collected boolean not null default false,
+  last_driver_latitude double precision,
+  last_driver_longitude double precision,
+  last_driver_location_at timestamptz,
   status text not null default 'searching'
     check (status in ('searching', 'accepted', 'cancelled', 'completed')),
   created_at timestamptz not null default now(),
@@ -98,6 +101,11 @@ alter table ride_requests
   add column if not exists driver_offer_id uuid references app_users(id) on delete set null,
   add column if not exists driver_offer_fare integer,
   add column if not exists driver_offer_status text;
+
+alter table ride_requests
+  add column if not exists last_driver_latitude double precision,
+  add column if not exists last_driver_longitude double precision,
+  add column if not exists last_driver_location_at timestamptz;
 
 do $$
 begin

@@ -430,7 +430,7 @@ async function getNearbyDrivers(userId, rideId) {
 }
 
 async function adminDashboard() {
-  const [counts, drivers, rides] = await Promise.all([
+  const [counts, drivers, rides, history] = await Promise.all([
     pool.query(
       `select
         (select count(*)::int from app_users) as total_users,
@@ -451,17 +451,57 @@ async function adminDashboard() {
        order by dp.updated_at desc limit 20`,
     ),
     pool.query(
-      `select r.id as request_id, r.status, rider.display_name as rider_name,
-              coalesce(driver.display_name, '') as driver_name, r.pickup_address,
-              r.destination_address, r.vehicle, r.offered_fare, r.created_at, r.updated_at
+      `select r.id as request_id, r.status, r.rider_id, rider.display_name as rider_name,
+              rider.email as rider_email, r.driver_id,
+              coalesce(driver.display_name, '') as driver_name,
+              coalesce(driver.email, '') as driver_email,
+              r.pickup_address, r.destination_address,
+              r.pickup_latitude, r.pickup_longitude,
+              r.destination_latitude, r.destination_longitude,
+              r.vehicle, r.offered_fare, r.driver_offer_fare, r.driver_offer_status,
+              r.cash_collected, r.created_at, r.updated_at,
+              case when r.status='accepted' and dp.updated_at > now() - interval '60 seconds'
+                then dp.latitude else r.last_driver_latitude end as driver_latitude,
+              case when r.status='accepted' and dp.updated_at > now() - interval '60 seconds'
+                then dp.longitude else r.last_driver_longitude end as driver_longitude,
+              case when r.status='accepted' and dp.updated_at > now() - interval '60 seconds'
+                then dp.updated_at else r.last_driver_location_at end as driver_location_at,
+              (r.status='accepted' and dp.updated_at > now() - interval '60 seconds')
+                as driver_location_is_live
        from ride_requests r
        join app_users rider on rider.id = r.rider_id
        left join app_users driver on driver.id = r.driver_id
+       left join driver_presence dp on dp.user_id = r.driver_id
        where r.status in ('searching', 'accepted')
        order by r.updated_at desc limit 30`,
     ),
+    pool.query(
+      `select r.id as request_id, r.status, r.rider_id, rider.display_name as rider_name,
+              rider.email as rider_email, r.driver_id,
+              coalesce(driver.display_name, '') as driver_name,
+              coalesce(driver.email, '') as driver_email,
+              r.pickup_address, r.destination_address,
+              r.pickup_latitude, r.pickup_longitude,
+              r.destination_latitude, r.destination_longitude,
+              r.vehicle, r.offered_fare, r.driver_offer_fare, r.driver_offer_status,
+              r.cash_collected, r.created_at, r.updated_at,
+              r.last_driver_latitude as driver_latitude,
+              r.last_driver_longitude as driver_longitude,
+              r.last_driver_location_at as driver_location_at,
+              false as driver_location_is_live
+       from ride_requests r
+       join app_users rider on rider.id = r.rider_id
+       left join app_users driver on driver.id = r.driver_id
+       where r.status in ('completed', 'cancelled')
+       order by r.updated_at desc limit 100`,
+    ),
   ]);
-  return { summary: counts.rows[0], drivers: drivers.rows, rides: rides.rows };
+  return {
+    summary: counts.rows[0],
+    drivers: drivers.rows,
+    rides: rides.rows,
+    history: history.rows,
+  };
 }
 
 async function route(request, response, url) {
@@ -938,16 +978,33 @@ async function route(request, response, url) {
     if (!isUuid(body.request_id) || !validCoordinates(latitude, longitude)) {
       throw fail('Provide a valid active ride and driver location.');
     }
-    const result = await pool.query(
-      `update driver_presence as dp
-       set latitude = $3, longitude = $4, is_online = false, updated_at = now()
-       from ride_requests as r
-       where dp.user_id = $1 and r.id = $2 and r.driver_id = $1 and r.status = 'accepted'
-       returning dp.user_id`,
-      [user.id, body.request_id, latitude, longitude],
-    );
-    if (!result.rowCount) throw fail('This active ride is no longer available for location sharing.', 404);
-    sendJson(response, 200, { success: true });
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const result = await client.query(
+        `update driver_presence as dp
+         set latitude = $3, longitude = $4, is_online = false, updated_at = now()
+         from ride_requests as r
+         where dp.user_id = $1 and r.id = $2 and r.driver_id = $1 and r.status = 'accepted'
+         returning dp.user_id`,
+        [user.id, body.request_id, latitude, longitude],
+      );
+      if (!result.rowCount) throw fail('This active ride is no longer available for location sharing.', 404);
+      await client.query(
+        `update ride_requests
+         set last_driver_latitude=$3, last_driver_longitude=$4,
+             last_driver_location_at=now(), updated_at=now()
+         where id=$1 and driver_id=$2 and status='accepted'`,
+        [body.request_id, user.id, latitude, longitude],
+      );
+      await client.query('commit');
+      sendJson(response, 200, { success: true });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
     return;
   }
 
