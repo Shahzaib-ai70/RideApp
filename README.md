@@ -160,7 +160,7 @@ For Android/iOS builds, set `EXPO_PUBLIC_API_URL=https://sawaari.online/api` in 
 
 ## Driver verification and admin operations
 
-The admin page is available at `https://sawaari.online/admin`. Its username and password are configured separately by the VPS setup script and do not share rider/driver credentials. The review queue displays pending applications, opens private documents through expiring URLs, and supports approval, change requests, or rejection.
+The admin page is available at `https://sawaari.online/admin`. Its username and password are configured separately by the VPS setup script and do not share rider/driver credentials. The review queue displays pending applications, opens private documents through expiring URLs, and supports approval, change requests, or rejection. The dashboard keeps ride history out of the main overview; open an account from the registered-user directory or a live ride/driver card to view that rider's or driver's paginated ride history and recorded ride locations.
 
 Driver applications collect a legal name, vehicle category/make/model/year, CNIC, driving licence, vehicle registration, and vehicle photo. The CNIC and licence sides should be combined in one PDF or image per document type. Documents are stored privately; the app does not verify identities against NADRA or government databases. Do not upload real identity documents without a lawful basis, informed consent, appropriate retention/deletion rules, and security procedures.
 

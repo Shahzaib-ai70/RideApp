@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { Text, TextInput } from './AppText';
 import { adminApi } from '../lib/adminApi';
+import RideMap from './RideMap';
+import type { MapPoint } from './ride-map.types';
 
 const COLORS = {
   ink: '#12273A',
@@ -33,8 +35,77 @@ type UserRecord = {
   driver_status: string | null;
 };
 
+type UserRideHistory = {
+  request_id: string;
+  status: 'searching' | 'accepted' | 'completed' | 'cancelled';
+  user_role: 'rider' | 'driver';
+  other_party_name: string;
+  other_party_email: string;
+  pickup_address: string;
+  destination_address: string;
+  pickup_latitude: number;
+  pickup_longitude: number;
+  destination_latitude: number;
+  destination_longitude: number;
+  vehicle: string;
+  offered_fare: number;
+  cash_collected: boolean;
+  created_at: string;
+  updated_at: string;
+  driver_latitude: number | null;
+  driver_longitude: number | null;
+  driver_location_at: string | null;
+  driver_location_is_live: boolean;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isRideHistory(value: unknown): value is UserRideHistory {
+  return isRecord(value)
+    && typeof value.request_id === 'string'
+    && ['searching', 'accepted', 'completed', 'cancelled'].includes(String(value.status))
+    && (value.user_role === 'rider' || value.user_role === 'driver')
+    && typeof value.other_party_name === 'string'
+    && typeof value.other_party_email === 'string'
+    && typeof value.pickup_address === 'string'
+    && typeof value.destination_address === 'string'
+    && typeof value.pickup_latitude === 'number'
+    && Number.isFinite(value.pickup_latitude)
+    && typeof value.pickup_longitude === 'number'
+    && Number.isFinite(value.pickup_longitude)
+    && typeof value.destination_latitude === 'number'
+    && Number.isFinite(value.destination_latitude)
+    && typeof value.destination_longitude === 'number'
+    && Number.isFinite(value.destination_longitude)
+    && typeof value.vehicle === 'string'
+    && typeof value.offered_fare === 'number'
+    && Number.isFinite(value.offered_fare)
+    && typeof value.cash_collected === 'boolean'
+    && typeof value.created_at === 'string'
+    && Number.isFinite(Date.parse(value.created_at))
+    && typeof value.updated_at === 'string'
+    && Number.isFinite(Date.parse(value.updated_at))
+    && (typeof value.driver_latitude === 'number' || value.driver_latitude === null)
+    && (typeof value.driver_longitude === 'number' || value.driver_longitude === null)
+    && (typeof value.driver_location_at === 'string' || value.driver_location_at === null)
+    && typeof value.driver_location_is_live === 'boolean';
+}
+
+function parseRideHistoryResponse(value: unknown) {
+  if (!isRecord(value)
+    || !Array.isArray(value.rides)
+    || typeof value.total !== 'number'
+    || !Number.isSafeInteger(value.total)
+    || value.total < 0) {
+    throw new Error('The server returned invalid ride history.');
+  }
+  const rides = value.rides.filter(isRideHistory);
+  if (rides.length !== value.rides.length) {
+    throw new Error('The server returned invalid ride history.');
+  }
+  return { rides, total: value.total };
 }
 
 function isUserRecord(value: unknown): value is UserRecord {
@@ -56,15 +127,29 @@ function driverLabel(status: string | null) {
   return 'Driver application';
 }
 
-export default function AdminUserConsole({ onClose }: { onClose: () => void }) {
+export default function AdminUserConsole({
+  onClose,
+  initialSearch = '',
+}: {
+  onClose: () => void;
+  initialSearch?: string;
+}) {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [historyUserId, setHistoryUserId] = useState<string | null>(null);
+  const [history, setHistory] = useState<UserRideHistory[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [mapRideId, setMapRideId] = useState<string | null>(null);
+  const historyRequestVersion = useRef(0);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -102,10 +187,160 @@ export default function AdminUserConsole({ onClose }: { onClose: () => void }) {
   const applySearch = () => {
     setOffset(0);
     setSearch(searchInput.trim());
+    setHistoryUserId(null);
+    setHistory([]);
+    setMapRideId(null);
+  };
+
+  const toggleHistory = async (user: UserRecord, forceReload = false) => {
+    if (historyUserId === user.user_id && !forceReload) {
+      historyRequestVersion.current += 1;
+      setHistoryUserId(null);
+      setHistory([]);
+      setHistoryError('');
+      setMapRideId(null);
+      return;
+    }
+
+    const requestVersion = ++historyRequestVersion.current;
+    setHistoryUserId(user.user_id);
+    setHistory([]);
+    setHistoryTotal(0);
+    setHistoryError('');
+    setMapRideId(null);
+    setHistoryLoading(true);
+    setHistoryLoadingMore(false);
+    try {
+      const result = parseRideHistoryResponse(await adminApi<unknown>(
+        `/api/admin/users/${encodeURIComponent(user.user_id)}/history?limit=${PAGE_SIZE}&offset=0`,
+      ));
+      if (historyRequestVersion.current !== requestVersion) return;
+      setHistory(result.rides);
+      setHistoryTotal(result.total);
+    } catch (loadError: unknown) {
+      if (historyRequestVersion.current === requestVersion) {
+        setHistoryError(loadError instanceof Error ? loadError.message : 'Could not load this user’s ride history.');
+      }
+    } finally {
+      if (historyRequestVersion.current === requestVersion) setHistoryLoading(false);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyUserId || historyLoadingMore || history.length >= historyTotal) return;
+    const requestedUserId = historyUserId;
+    const requestVersion = historyRequestVersion.current;
+    setHistoryLoadingMore(true);
+    setHistoryError('');
+    try {
+      const result = parseRideHistoryResponse(await adminApi<unknown>(
+        `/api/admin/users/${encodeURIComponent(requestedUserId)}/history?limit=${PAGE_SIZE}&offset=${history.length}`,
+      ));
+      if (historyRequestVersion.current !== requestVersion) return;
+      setHistory((current) => [...current, ...result.rides]);
+      setHistoryTotal(result.total);
+    } catch (loadError: unknown) {
+      if (historyRequestVersion.current === requestVersion) {
+        setHistoryError(loadError instanceof Error ? loadError.message : 'Could not load more ride history.');
+      }
+    } finally {
+      if (historyRequestVersion.current === requestVersion) setHistoryLoadingMore(false);
+    }
   };
 
   const firstUser = total === 0 ? 0 : offset + 1;
   const lastUser = Math.min(offset + users.length, total);
+  const historyLocation = (ride: UserRideHistory): MapPoint | null => (
+    ride.driver_latitude === null || ride.driver_longitude === null
+      ? null
+      : { latitude: ride.driver_latitude, longitude: ride.driver_longitude }
+  );
+
+  const renderHistoryRide = (ride: UserRideHistory) => {
+    const location = historyLocation(ride);
+    const showMap = mapRideId === ride.request_id;
+    const statusLabel = ride.status === 'accepted'
+      ? 'In progress'
+      : ride.status === 'searching'
+        ? 'Finding a driver'
+        : ride.status === 'completed'
+          ? 'Completed'
+          : 'Cancelled';
+    return (
+      <View key={ride.request_id} style={styles.historyRide}>
+        <View style={styles.historyRideTop}>
+          <View style={[styles.historyStatus, ride.status === 'completed' && styles.historyStatusComplete]}>
+            <View style={[styles.historyDot, ride.status === 'completed' && styles.historyDotComplete]} />
+            <Text style={styles.historyStatusText}>{statusLabel}</Text>
+          </View>
+          <Text style={styles.historyFare}>PKR {ride.offered_fare.toLocaleString()}</Text>
+        </View>
+        <Text style={styles.historyOtherParty}>
+          {ride.user_role === 'rider' ? 'Driver' : 'Rider'} · {ride.other_party_name}
+          {ride.other_party_email ? ` · ${ride.other_party_email}` : ''}
+        </Text>
+        <View style={styles.historyRoute}>
+          <Text style={styles.historyRouteText}>Pickup · {ride.pickup_address}</Text>
+          <Text style={styles.historyRouteText}>Destination · {ride.destination_address}</Text>
+        </View>
+        <Text style={styles.historyMeta}>
+          {ride.user_role === 'rider' ? 'Rider trip' : 'Driver trip'} · {ride.vehicle}
+          {' · '}{ride.cash_collected ? 'Cash recorded as collected' : 'Cash not confirmed'}
+        </Text>
+        <Text style={styles.historyMeta}>
+          {new Date(ride.created_at).toLocaleString()} · Updated {new Date(ride.updated_at).toLocaleString()}
+        </Text>
+        <View style={styles.historyLocation}>
+          <Text style={styles.historyLocationTitle}>
+            {ride.driver_location_is_live ? 'LIVE DRIVER LOCATION' : 'LAST RECORDED DRIVER LOCATION'}
+          </Text>
+          {location ? (
+            <>
+              <Text style={styles.historyMeta}>
+                {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+              </Text>
+              <Text style={styles.historyMeta}>
+                {ride.driver_location_at
+                  ? `Reported ${new Date(ride.driver_location_at).toLocaleString()}`
+                  : 'Location time unavailable'}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setMapRideId(showMap ? null : ride.request_id)}
+                style={styles.mapButton}
+              >
+                <Ionicons name={showMap ? 'close-outline' : 'map-outline'} size={14} color={COLORS.green} />
+                <Text style={styles.mapButtonText}>{showMap ? 'Hide map' : 'View ride map'}</Text>
+              </Pressable>
+            </>
+          ) : (
+            <Text style={styles.historyMeta}>No driver location was recorded for this ride.</Text>
+          )}
+        </View>
+        {showMap && location ? (
+          <View style={styles.mapFrame}>
+            <RideMap
+              region={{
+                latitude: (location.latitude + ride.pickup_latitude) / 2,
+                longitude: (location.longitude + ride.pickup_longitude) / 2,
+                latitudeDelta: Math.max(0.02, Math.abs(location.latitude - ride.pickup_latitude) * 2),
+                longitudeDelta: Math.max(0.02, Math.abs(location.longitude - ride.pickup_longitude) * 2),
+              }}
+              pickup={{ latitude: ride.pickup_latitude, longitude: ride.pickup_longitude }}
+              destination={{ latitude: ride.destination_latitude, longitude: ride.destination_longitude }}
+              acceptedDriverLocation={location}
+              acceptedDriverVehicle={ride.vehicle}
+              acceptedDriverTitle={ride.user_role === 'driver' ? 'You' : ride.other_party_name}
+              acceptedDriverDescription={ride.driver_location_is_live ? 'Live location' : 'Last recorded location'}
+              followAcceptedDriver={ride.driver_location_is_live}
+              locationGranted={false}
+              onRegionChange={() => undefined}
+            />
+          </View>
+        ) : null}
+      </View>
+    );
+  };
 
   return (
     <ScrollView
@@ -142,7 +377,7 @@ export default function AdminUserConsole({ onClose }: { onClose: () => void }) {
           </View>
           <Text style={styles.title}>Registered users</Text>
           <Text style={styles.subtitle}>
-            All rider accounts are listed here. Driver application status appears separately for users who submit documents.
+            Find a rider or driver, then open that account’s ride history when you need it.
           </Text>
           <Text style={styles.total}>{loading ? 'Loading accounts…' : `${total} registered account${total === 1 ? '' : 's'}`}</Text>
         </View>
@@ -193,23 +428,86 @@ export default function AdminUserConsole({ onClose }: { onClose: () => void }) {
         <View style={styles.userList}>
           {users.map((user) => (
             <View key={user.user_id} style={styles.userCard}>
-              <View style={styles.avatar}>
-                <Ionicons name="person-outline" size={18} color={COLORS.green} />
+              <View style={styles.userCardTop}>
+                <View style={styles.avatar}>
+                  <Ionicons name="person-outline" size={18} color={COLORS.green} />
+                </View>
+                <View style={styles.userCopy}>
+                  <Text style={styles.userName}>{user.display_name || 'Sawaari user'}</Text>
+                  <Text selectable style={styles.email}>{user.email}</Text>
+                  <Text style={styles.meta}>
+                    Joined {new Date(user.created_at).toLocaleDateString()}
+                    {' · '}
+                    {user.email_verified_at ? 'Email verified' : 'Email not verified'}
+                  </Text>
+                </View>
+                <View style={[styles.statusBadge, user.driver_status && styles.driverBadge]}>
+                  <Text style={[styles.statusText, user.driver_status && styles.driverStatusText]}>
+                    {driverLabel(user.driver_status)}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.userCopy}>
-                <Text style={styles.userName}>{user.display_name || 'Sawaari user'}</Text>
-                <Text selectable style={styles.email}>{user.email}</Text>
-                <Text style={styles.meta}>
-                  Joined {new Date(user.created_at).toLocaleDateString()}
-                  {' · '}
-                  {user.email_verified_at ? 'Email verified' : 'Email not verified'}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${historyUserId === user.user_id ? 'Hide' : 'View'} ride history for ${user.display_name || user.email}`}
+                onPress={() => void toggleHistory(user)}
+                style={styles.historyToggle}
+              >
+                <Ionicons name="time-outline" size={15} color={COLORS.green} />
+                <Text style={styles.historyToggleText}>
+                  {historyUserId === user.user_id ? 'Hide ride history' : 'View ride history'}
                 </Text>
-              </View>
-              <View style={[styles.statusBadge, user.driver_status && styles.driverBadge]}>
-                <Text style={[styles.statusText, user.driver_status && styles.driverStatusText]}>
-                  {driverLabel(user.driver_status)}
-                </Text>
-              </View>
+                {historyUserId === user.user_id
+                  ? <Ionicons name="chevron-up" size={15} color={COLORS.green} />
+                  : <Ionicons name="chevron-down" size={15} color={COLORS.green} />}
+              </Pressable>
+              {historyUserId === user.user_id ? (
+                <View style={styles.historyPanel}>
+                  <View style={styles.historyHeading}>
+                    <Text style={styles.historyTitle}>Ride history for {user.display_name || 'this account'}</Text>
+                    {!historyLoading
+                      ? <Text style={styles.historyCount}>{historyTotal} rides</Text>
+                      : null}
+                  </View>
+                  {historyLoading ? (
+                    <View style={styles.historyMessage}>
+                      <ActivityIndicator color={COLORS.green} />
+                      <Text style={styles.emptyText}>Loading this account’s ride history…</Text>
+                    </View>
+                  ) : null}
+                  {historyError ? (
+                    <View style={styles.historyError}>
+                      <Ionicons name="warning-outline" size={16} color={COLORS.red} />
+                      <Text style={styles.errorText}>{historyError}</Text>
+                      <Pressable onPress={() => void toggleHistory(user, true)}>
+                        <Text style={styles.retryText}>Retry</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                  {!historyLoading && !historyError && history.length === 0 ? (
+                    <View style={styles.historyMessage}>
+                      <Ionicons name="time-outline" size={19} color={COLORS.muted} />
+                      <Text style={styles.emptyText}>No rides found for this account.</Text>
+                    </View>
+                  ) : null}
+                  {history.map(renderHistoryRide)}
+                  {history.length < historyTotal ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={historyLoadingMore}
+                      onPress={() => void loadMoreHistory()}
+                      style={[styles.loadMoreButton, historyLoadingMore && styles.historyDisabledButton]}
+                    >
+                      {historyLoadingMore
+                        ? <ActivityIndicator size="small" color={COLORS.green} />
+                        : <Ionicons name="add-circle-outline" size={16} color={COLORS.green} />}
+                      <Text style={styles.loadMoreText}>
+                        {historyLoadingMore ? 'Loading more…' : `Load more (${history.length} of ${historyTotal})`}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           ))}
         </View>
@@ -219,7 +517,11 @@ export default function AdminUserConsole({ onClose }: { onClose: () => void }) {
             <Pressable
               accessibilityRole="button"
               disabled={offset === 0}
-              onPress={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
+              onPress={() => {
+                setHistoryUserId(null);
+                setHistory([]);
+                setOffset((current) => Math.max(0, current - PAGE_SIZE));
+              }}
               style={[styles.pageButton, offset === 0 && styles.disabledButton]}
             >
               <Ionicons name="chevron-back" size={15} color={COLORS.green} />
@@ -229,7 +531,11 @@ export default function AdminUserConsole({ onClose }: { onClose: () => void }) {
             <Pressable
               accessibilityRole="button"
               disabled={offset + PAGE_SIZE >= total}
-              onPress={() => setOffset((current) => current + PAGE_SIZE)}
+              onPress={() => {
+                setHistoryUserId(null);
+                setHistory([]);
+                setOffset((current) => current + PAGE_SIZE);
+              }}
               style={[styles.pageButton, offset + PAGE_SIZE >= total && styles.disabledButton]}
             >
               <Text style={styles.pageButtonText}>Next</Text>
@@ -269,7 +575,8 @@ const styles = StyleSheet.create({
   emptyCard: { minHeight: 74, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 15, borderWidth: 1, borderColor: COLORS.line, borderRadius: 14, backgroundColor: COLORS.white },
   emptyText: { color: COLORS.muted, fontSize: 11 },
   userList: { gap: 8 },
-  userCard: { minHeight: 82, flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, borderWidth: 1, borderColor: COLORS.line, borderRadius: 14, backgroundColor: COLORS.white },
+  userCard: { gap: 10, padding: 12, borderWidth: 1, borderColor: COLORS.line, borderRadius: 14, backgroundColor: COLORS.white },
+  userCardTop: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 11 },
   avatar: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#E8F0E4' },
   userCopy: { minWidth: 0, flex: 1, gap: 4 },
   userName: { color: COLORS.ink, fontSize: 12, fontWeight: '900' },
@@ -279,6 +586,34 @@ const styles = StyleSheet.create({
   statusText: { color: COLORS.muted, fontSize: 8, fontWeight: '800', textAlign: 'center' },
   driverBadge: { backgroundColor: '#E8F4EA' },
   driverStatusText: { color: COLORS.green },
+  historyToggle: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 9, backgroundColor: '#EFF7F3' },
+  historyToggleText: { flex: 1, color: COLORS.green, fontSize: 10, fontWeight: '900' },
+  historyPanel: { gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: COLORS.line },
+  historyHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  historyTitle: { flex: 1, color: COLORS.ink, fontSize: 12, fontWeight: '900' },
+  historyCount: { color: COLORS.green, fontSize: 10, fontWeight: '900' },
+  historyMessage: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, padding: 12, borderRadius: 10, backgroundColor: '#F6F8F7' },
+  historyError: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, backgroundColor: '#FBE9E8' },
+  historyRide: { gap: 9, padding: 11, borderWidth: 1, borderColor: COLORS.line, borderRadius: 11, backgroundColor: '#FBFDFC' },
+  historyRideTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  historyStatus: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 20, backgroundColor: '#E9EEF2' },
+  historyStatusComplete: { backgroundColor: '#E8F4EA' },
+  historyDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.muted },
+  historyDotComplete: { backgroundColor: '#2D9B63' },
+  historyStatusText: { color: COLORS.ink, fontSize: 9, fontWeight: '800' },
+  historyFare: { color: COLORS.green, fontSize: 11, fontWeight: '900' },
+  historyOtherParty: { color: COLORS.ink, fontSize: 10, fontWeight: '700' },
+  historyRoute: { gap: 5, padding: 9, borderRadius: 9, backgroundColor: '#F1F5F3' },
+  historyRouteText: { color: COLORS.ink, fontSize: 10, lineHeight: 15 },
+  historyMeta: { color: COLORS.muted, fontSize: 9, lineHeight: 14 },
+  historyLocation: { gap: 5, padding: 9, borderWidth: 1, borderColor: COLORS.line, borderRadius: 9, backgroundColor: '#F8FBFA' },
+  historyLocationTitle: { color: COLORS.ink, fontSize: 9, fontWeight: '900', letterSpacing: 0.4 },
+  mapButton: { alignSelf: 'flex-start', minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, borderRadius: 8, backgroundColor: COLORS.lime },
+  mapButtonText: { color: COLORS.green, fontSize: 9, fontWeight: '900' },
+  mapFrame: { height: 220, overflow: 'hidden', borderRadius: 10, borderWidth: 1, borderColor: COLORS.line },
+  loadMoreButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 9, borderRadius: 9, backgroundColor: '#EFF7F3' },
+  loadMoreText: { color: COLORS.green, fontSize: 10, fontWeight: '900' },
+  historyDisabledButton: { opacity: 0.55 },
   pagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 4 },
   pageButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 10, backgroundColor: COLORS.white },
   pageButtonText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },

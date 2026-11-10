@@ -547,7 +547,7 @@ async function getNearbyDrivers(userId, rideId) {
 }
 
 async function adminDashboard() {
-  const [counts, drivers, rides, history] = await Promise.all([
+  const [counts, drivers, rides] = await Promise.all([
     pool.query(
       `select
         (select count(*)::int from app_users) as total_users,
@@ -560,7 +560,7 @@ async function adminDashboard() {
         (select count(*)::int from ride_requests where status = 'completed' and updated_at >= date_trunc('day', now())) as completed_today`,
     ),
     pool.query(
-      `select dp.user_id as driver_id, u.display_name as driver_name, dp.vehicle,
+      `select dp.user_id as driver_id, u.display_name as driver_name, u.email as driver_email, dp.vehicle,
               dp.updated_at as last_seen_at
        from driver_presence dp join app_users u on u.id = dp.user_id
        join driver_applications da on da.user_id = dp.user_id and da.status = 'approved'
@@ -592,32 +592,11 @@ async function adminDashboard() {
        where r.status in ('searching', 'accepted')
        order by r.updated_at desc limit 30`,
     ),
-    pool.query(
-      `select r.id as request_id, r.status, r.rider_id, rider.display_name as rider_name,
-              rider.email as rider_email, r.driver_id,
-              coalesce(driver.display_name, '') as driver_name,
-              coalesce(driver.email, '') as driver_email,
-              r.pickup_address, r.destination_address,
-              r.pickup_latitude, r.pickup_longitude,
-              r.destination_latitude, r.destination_longitude,
-              r.vehicle, r.offered_fare, r.driver_offer_fare, r.driver_offer_status,
-              r.cash_collected, r.created_at, r.updated_at,
-              r.last_driver_latitude as driver_latitude,
-              r.last_driver_longitude as driver_longitude,
-              r.last_driver_location_at as driver_location_at,
-              false as driver_location_is_live
-       from ride_requests r
-       join app_users rider on rider.id = r.rider_id
-       left join app_users driver on driver.id = r.driver_id
-       where r.status in ('completed', 'cancelled')
-       order by r.updated_at desc limit 100`,
-    ),
   ]);
   return {
     summary: counts.rows[0],
     drivers: drivers.rows,
     rides: rides.rows,
-    history: history.rows,
   };
 }
 
@@ -864,6 +843,61 @@ async function route(request, response, url) {
       ]);
       sendJson(response, 200, {
         users: users.rows,
+        total: count.rows[0].total,
+        limit: requestedLimit,
+        offset: requestedOffset,
+      });
+      return;
+    }
+    const userHistoryMatch = pathname.match(
+      /^\/api\/admin\/users\/([0-9a-f-]{36})\/history$/i,
+    );
+    if (method === 'GET' && userHistoryMatch) {
+      const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
+      const requestedOffset = Number(url.searchParams.get('offset') ?? 0);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100
+        || !Number.isSafeInteger(requestedOffset) || requestedOffset < 0) {
+        throw fail('Invalid ride-history page.');
+      }
+      const userId = userHistoryMatch[1];
+      const [count, rides] = await Promise.all([
+        pool.query(
+          `select count(*)::int as total
+           from ride_requests
+           where rider_id=$1 or driver_id=$1`,
+          [userId],
+        ),
+        pool.query(
+          `select r.id as request_id, r.status,
+                  case when r.rider_id=$1 then 'rider' else 'driver' end as user_role,
+                  case when r.rider_id=$1 then coalesce(driver.display_name, 'No driver assigned')
+                       else rider.display_name end as other_party_name,
+                  case when r.rider_id=$1 then coalesce(driver.email, '')
+                       else rider.email end as other_party_email,
+                  r.pickup_address, r.destination_address,
+                  r.pickup_latitude, r.pickup_longitude,
+                  r.destination_latitude, r.destination_longitude,
+                  r.vehicle, r.offered_fare, r.cash_collected, r.created_at, r.updated_at,
+                  case when r.status='accepted' and dp.updated_at > now() - interval '60 seconds'
+                    then dp.latitude else r.last_driver_latitude end as driver_latitude,
+                  case when r.status='accepted' and dp.updated_at > now() - interval '60 seconds'
+                    then dp.longitude else r.last_driver_longitude end as driver_longitude,
+                  case when r.status='accepted' and dp.updated_at > now() - interval '60 seconds'
+                    then dp.updated_at else r.last_driver_location_at end as driver_location_at,
+                  (r.status='accepted' and dp.updated_at > now() - interval '60 seconds')
+                    as driver_location_is_live
+           from ride_requests r
+           join app_users rider on rider.id=r.rider_id
+           left join app_users driver on driver.id=r.driver_id
+           left join driver_presence dp on dp.user_id=r.driver_id
+           where r.rider_id=$1 or r.driver_id=$1
+           order by r.updated_at desc, r.id
+           limit $2 offset $3`,
+          [userId, requestedLimit, requestedOffset],
+        ),
+      ]);
+      sendJson(response, 200, {
+        rides: rides.rows,
         total: count.rows[0].total,
         limit: requestedLimit,
         offset: requestedOffset,

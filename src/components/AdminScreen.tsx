@@ -33,6 +33,7 @@ export default function AdminScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [signingIn, setSigningIn] = useState(false);
@@ -203,7 +204,7 @@ export default function AdminScreen() {
     return <DriverReviewConsole onClose={() => setShowReviews(false)} />;
   }
   if (showUsers) {
-    return <AdminUserConsole onClose={() => setShowUsers(false)} />;
+    return <AdminUserConsole onClose={() => setShowUsers(false)} initialSearch={userSearch} />;
   }
 
   return (
@@ -212,7 +213,10 @@ export default function AdminScreen() {
         void signOut().then(() => router.replace('/'));
       }}
       onOpenReviews={() => setShowReviews(true)}
-      onOpenUsers={() => setShowUsers(true)}
+      onOpenUsers={(search = '') => {
+        setUserSearch(search);
+        setShowUsers(true);
+      }}
     />
   );
 }

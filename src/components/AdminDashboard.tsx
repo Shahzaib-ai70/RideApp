@@ -39,6 +39,7 @@ type Summary = {
 type LiveDriver = {
   driver_id: string;
   driver_name: string;
+  driver_email: string;
   vehicle: string;
   last_seen_at: string;
 };
@@ -94,6 +95,7 @@ function isLiveDriver(value: unknown): value is LiveDriver {
   return isRecord(value)
     && typeof value.driver_id === 'string'
     && typeof value.driver_name === 'string'
+    && typeof value.driver_email === 'string'
     && typeof value.vehicle === 'string'
     && typeof value.last_seen_at === 'string'
     && Number.isFinite(Date.parse(value.last_seen_at));
@@ -140,10 +142,6 @@ function isLiveRide(value: unknown): value is AdminRide {
   return isAdminRide(value) && (value.status === 'searching' || value.status === 'accepted');
 }
 
-function isHistoryRide(value: unknown): value is AdminRide {
-  return isAdminRide(value) && (value.status === 'completed' || value.status === 'cancelled');
-}
-
 function formatTime(value: string) {
   return new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
@@ -167,12 +165,11 @@ export default function AdminDashboard({
 }: {
   onClose: () => void;
   onOpenReviews: () => void;
-  onOpenUsers: () => void;
+  onOpenUsers: (search?: string) => void;
 }) {
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [drivers, setDrivers] = useState<LiveDriver[]>([]);
   const [rides, setRides] = useState<AdminRide[]>([]);
-  const [history, setHistory] = useState<AdminRide[]>([]);
   const [mapRideId, setMapRideId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -194,8 +191,7 @@ export default function AdminDashboard({
       if (!isRecord(data)
         || !isRecord(data.summary)
         || !Array.isArray(data.drivers)
-        || !Array.isArray(data.rides)
-        || !Array.isArray(data.history)) {
+        || !Array.isArray(data.rides)) {
         throw new Error('The server returned invalid admin dashboard data.');
       }
       const row = data.summary;
@@ -217,9 +213,6 @@ export default function AdminDashboard({
       if (!data.rides.every(isLiveRide)) {
         throw new Error('The server returned an invalid active ride list.');
       }
-      if (!data.history.every(isHistoryRide)) {
-        throw new Error('The server returned invalid ride history.');
-      }
       if (!active.current || refreshVersion.current !== version) return;
 
       setSummary({
@@ -233,7 +226,6 @@ export default function AdminDashboard({
       });
       setDrivers(data.drivers);
       setRides(data.rides);
-      setHistory(data.history);
       setLastUpdated(new Date().toISOString());
       setApiConnected(true);
       setError('');
@@ -312,17 +304,32 @@ export default function AdminDashboard({
           </View>
           <Text style={styles.fare}>PKR {ride.offered_fare.toLocaleString()}</Text>
         </View>
-        <View style={styles.detailBlock}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`View ride history for rider ${ride.rider_name || ride.rider_email}`}
+          onPress={() => onOpenUsers(ride.rider_email)}
+          style={styles.detailBlock}
+        >
           <Text style={styles.detailTitle}>Rider</Text>
           <Text style={styles.detailText}>{ride.rider_name || 'Rider'} · {ride.rider_email}</Text>
           <Text selectable style={styles.idText}>ID {ride.rider_id}</Text>
-        </View>
+          <Text style={styles.accountHistoryLink}>View rider history ›</Text>
+        </Pressable>
         <View style={styles.detailBlock}>
           <Text style={styles.detailTitle}>Driver</Text>
           <Text style={styles.detailText}>
             {ride.driver_id ? `${ride.driver_name || 'Driver'} · ${ride.driver_email}` : 'No driver assigned'}
           </Text>
           {ride.driver_id ? <Text selectable style={styles.idText}>ID {ride.driver_id}</Text> : null}
+          {ride.driver_id ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`View ride history for driver ${ride.driver_name || ride.driver_email}`}
+              onPress={() => onOpenUsers(ride.driver_email)}
+            >
+              <Text style={styles.accountHistoryLink}>View driver history ›</Text>
+            </Pressable>
+          ) : null}
         </View>
         <View style={styles.routeLine}>
           <View style={styles.routeDots}>
@@ -477,7 +484,7 @@ export default function AdminDashboard({
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.green} />
         </Pressable>
-        <Pressable accessibilityRole="button" onPress={onOpenUsers} style={styles.usersButton}>
+        <Pressable accessibilityRole="button" onPress={() => onOpenUsers()} style={styles.usersButton}>
           <View style={styles.usersIcon}>
             <Ionicons name="people-outline" size={20} color={COLORS.green} />
           </View>
@@ -538,7 +545,13 @@ export default function AdminDashboard({
             </View>
           ) : null}
           {drivers.map((driver) => (
-            <View key={driver.driver_id} style={styles.listCard}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`View ride history for driver ${driver.driver_name}`}
+              key={driver.driver_id}
+              onPress={() => onOpenUsers(driver.driver_email)}
+              style={styles.listCard}
+            >
               <View style={styles.avatar}>
                 <Ionicons name="person-outline" size={17} color={COLORS.green} />
               </View>
@@ -547,7 +560,7 @@ export default function AdminDashboard({
                 <Text style={styles.listDetail}>{driver.vehicle} · Updated {formatTime(driver.last_seen_at)}</Text>
               </View>
               <View style={styles.onlineBadge}><View style={styles.onlineDot} /><Text style={styles.onlineText}>ONLINE</Text></View>
-            </View>
+            </Pressable>
           ))}
         </View>
 
@@ -566,23 +579,6 @@ export default function AdminDashboard({
             </View>
           ) : null}
           {rides.map(renderRideCard)}
-        </View>
-
-        <View style={styles.sectionHeading}>
-          <View style={styles.sectionTitleRow}>
-            <View style={styles.sectionIcon}><Ionicons name="time-outline" size={16} color={COLORS.green} /></View>
-            <Text style={styles.sectionTitle}>Recent ride & driver history</Text>
-          </View>
-          <View style={styles.sectionCountPill}><Text style={styles.sectionCount}>{history.length} rides</Text></View>
-        </View>
-        <View style={styles.listGroup}>
-          {history.length === 0 && !loading ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="time-outline" size={22} color={COLORS.muted} />
-              <Text style={styles.emptyText}>No completed or cancelled rides have been recorded yet.</Text>
-            </View>
-          ) : null}
-          {history.map(renderRideCard)}
         </View>
 
         <View style={styles.disclaimerCard}>
@@ -683,6 +679,7 @@ const styles = StyleSheet.create({
   detailBlock: { gap: 3, padding: 10, borderRadius: 10, backgroundColor: '#F6F8F7' },
   detailTitle: { color: COLORS.ink, fontSize: 9, fontWeight: '900', letterSpacing: 0.6 },
   detailText: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  accountHistoryLink: { color: COLORS.green, fontSize: 9, fontWeight: '900' },
   idText: { color: COLORS.muted, fontSize: 8, lineHeight: 12 },
   locationPanel: { gap: 5, padding: 10, borderRadius: 11, borderWidth: 1, borderColor: COLORS.line, backgroundColor: '#F8FBFA' },
   locationHeading: { flexDirection: 'row', alignItems: 'center', gap: 6 },
