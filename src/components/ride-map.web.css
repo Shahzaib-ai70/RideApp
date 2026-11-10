@@ -7,7 +7,7 @@
 
 .sawaari-google-map-frame {
   position: relative;
-  background: #e5edf5;
+  background: #dce9e5;
   font-family: system-ui, sans-serif;
 }
 
@@ -18,12 +18,12 @@
 }
 
 .sawaari-open-map .leaflet-bar a {
-  color: #245b8f;
+  color: #0b786f;
 }
 
 .sawaari-open-map .leaflet-bar a:hover {
-  color: #245b8f;
-  background: #dceaf5;
+  color: #0b786f;
+  background: #d9f5ea;
 }
 
 .sawaari-marker-shell {
@@ -37,7 +37,7 @@
   justify-content: center;
   box-sizing: border-box;
   border: 3px solid #fff;
-  box-shadow: 0 2px 9px #172b3a55;
+  box-shadow: 0 2px 9px #12273a55;
 }
 
 .sawaari-marker-pickup {
@@ -45,7 +45,7 @@
   height: 25px;
   border: 5px solid #fff;
   border-radius: 50%;
-  background: #245b8f;
+  background: #0b786f;
 }
 
 .sawaari-marker-pickup i {
@@ -60,7 +60,7 @@
   height: 29px;
   border-radius: 11px 11px 11px 2px;
   transform: rotate(-45deg);
-  background: #d98a3c;
+  background: #e79a54;
   color: #fff;
   font-size: 10px;
 }
@@ -77,8 +77,8 @@
   justify-content: center;
   gap: 12px;
   padding: 32px;
-  color: #172b3a;
-  background: #f4f7fa;
+  color: #12273a;
+  background: #f1f6f5;
   font-size: 14px;
   line-height: 1.5;
 }

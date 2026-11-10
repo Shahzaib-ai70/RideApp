@@ -60,15 +60,15 @@ type DriverDashboard = {
 
 const VEHICLES: Vehicle[] = ['Bike', 'Rickshaw', 'Car', 'Premium'];
 const COLORS = {
-  ink: '#172B3A',
-  muted: '#667785',
-  green: '#245B8F',
-  lime: '#DCEAF5',
-  paper: '#F4F7FA',
-  line: '#DFE7EE',
+  ink: '#12273A',
+  muted: '#63798A',
+  green: '#0B786F',
+  lime: '#D9F5EA',
+  paper: '#F1F6F5',
+  line: '#DCE8E5',
   white: '#FFFFFF',
   red: '#C34242',
-  orange: '#D98A3C',
+  orange: '#E79A54',
 };
 const APPLICATION_STATUSES: DriverApplicationStatus[] = [
   'pending',
@@ -526,11 +526,26 @@ export default function DriverScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.screen}>
-      <Text style={styles.eyebrow}>DRIVER MODE</Text>
-      <Text style={styles.title}>Nearby requests</Text>
-      <Text style={styles.subtitle}>
-        Stay online with location enabled to receive matching ride requests within 10 km.
-      </Text>
+      <View style={styles.driverIntro}>
+        <View style={styles.driverIntroTop}>
+          <View style={styles.driverIntroCopy}>
+            <Text style={styles.driverIntroEyebrow}>SAWAARI · DRIVER STUDIO</Text>
+            <Text style={styles.driverIntroTitle}>Your road, your rhythm.</Text>
+          </View>
+          <VehicleArt
+            vehicle={VEHICLES.find((item) => item === application.vehicle_type) ?? 'Car'}
+            selected
+            size={56}
+          />
+        </View>
+        <Text style={styles.driverIntroSubtitle}>
+          Go online when you’re ready. Nearby ride offers appear here.
+        </Text>
+        <View style={styles.driverLiveState}>
+          <View style={[styles.driverLiveDot, isOnline && styles.driverLiveDotOn]} />
+          <Text style={styles.driverLiveText}>{isOnline ? 'You’re visible to nearby riders' : 'You’re currently offline'}</Text>
+        </View>
+      </View>
       {dashboardLoading ? <ActivityIndicator color={COLORS.green} /> : null}
       {dashboardError ? (
         <View style={styles.error}>
@@ -738,11 +753,21 @@ export default function DriverScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { padding: 20, paddingBottom: 36, gap: 14, backgroundColor: COLORS.paper, flexGrow: 1 },
+  screen: { padding: 18, paddingBottom: 36, gap: 14, backgroundColor: COLORS.paper, flexGrow: 1 },
   eyebrow: { marginTop: 6, color: COLORS.green, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
   title: { color: COLORS.ink, fontSize: 27, fontWeight: '800', letterSpacing: -0.8 },
   subtitle: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },
-  card: { padding: 15, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  driverIntro: { padding: 17, borderRadius: 23, gap: 11, backgroundColor: '#11283A', elevation: 7, shadowColor: '#11283A', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+  driverIntroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  driverIntroCopy: { flex: 1 },
+  driverIntroEyebrow: { color: '#A8D9CC', fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
+  driverIntroTitle: { marginTop: 5, color: COLORS.white, fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
+  driverIntroSubtitle: { color: '#D0DFE2', fontSize: 11, lineHeight: 17 },
+  driverLiveState: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.16)' },
+  driverLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#E79A54' },
+  driverLiveDotOn: { backgroundColor: '#52D5A9' },
+  driverLiveText: { color: '#D5E6E3', fontSize: 10, fontWeight: '600' },
+  card: { padding: 16, borderRadius: 20, borderWidth: 1, borderColor: '#E6EFEC', backgroundColor: COLORS.white, elevation: 3, shadowColor: '#173A4B', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sectionHeadingCopy: { flex: 1 },
   sectionIcon: {
@@ -751,7 +776,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EAF1F7',
+    backgroundColor: '#E2F5EF',
   },
   sectionIconLight: {
     width: 38,
@@ -770,18 +795,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 10,
-    backgroundColor: '#EAF1F7',
+    backgroundColor: '#E2F5EF',
   },
   verifiedText: { color: COLORS.green, fontSize: 9, fontWeight: '800' },
   infoDivider: { height: 1, marginVertical: 13, backgroundColor: COLORS.line },
   accountName: { color: COLORS.ink, fontSize: 16, fontWeight: '800' },
   vehicleInfo: { marginTop: 4, color: COLORS.green, fontSize: 12, fontWeight: '700' },
   smallNote: { marginTop: 7, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
-  earningsCard: {
-    padding: 16,
-    borderRadius: 17,
-    backgroundColor: COLORS.green,
-  },
+  earningsCard: { padding: 18, borderRadius: 22, backgroundColor: '#0B786F', elevation: 6, shadowColor: '#0B786F', shadowOpacity: 0.2, shadowRadius: 11, shadowOffset: { width: 0, height: 5 } },
   earningsLabel: { color: '#D8E5EF', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   earningsAmount: { marginTop: 3, color: COLORS.white, fontSize: 25, fontWeight: '900' },
   earningsStats: {
@@ -820,7 +841,7 @@ const styles = StyleSheet.create({
   vehicleLabel: { marginTop: 14 },
   vehicleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   vehicleButton: { minWidth: 74, alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 9, borderRadius: 13, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
-  vehicleSelected: { borderColor: COLORS.green, backgroundColor: '#EAF1F7' },
+  vehicleSelected: { borderColor: COLORS.green, backgroundColor: '#E2F5EF' },
   vehicleText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   vehicleTextSelected: { color: COLORS.green },
   onlineButton: {
@@ -845,7 +866,7 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', padding: 22, borderRadius: 16, backgroundColor: COLORS.white },
   emptyTitle: { marginTop: 9, color: COLORS.ink, fontSize: 14, fontWeight: '800' },
   emptyCopy: { marginTop: 4, color: COLORS.muted, fontSize: 11, textAlign: 'center' },
-  requestCard: { padding: 15, borderRadius: 15, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white, gap: 8 },
+  requestCard: { padding: 17, borderRadius: 21, borderWidth: 1, borderColor: '#E6EFEC', backgroundColor: COLORS.white, gap: 9, elevation: 4, shadowColor: '#173A4B', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   paymentHint: { color: COLORS.orange, fontSize: 10, lineHeight: 15, fontWeight: '700' },
   requestTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   requestFare: { color: COLORS.green, fontSize: 18, fontWeight: '800' },

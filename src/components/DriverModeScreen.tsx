@@ -12,12 +12,12 @@ import VehicleArt from './VehicleArt';
 
 const COLORS = {
   ink: '#F7FAFC',
-  muted: '#AAB8C4',
-  green: '#245B8F',
-  lime: '#DCEAF5',
-  dark: '#162331',
-  card: '#213244',
-  line: '#34495C',
+  muted: '#A8C1C8',
+  green: '#0B786F',
+  lime: '#B5F1DF',
+  dark: '#11283A',
+  card: '#1C394A',
+  line: '#355162',
   white: '#FFFFFF',
 };
 
@@ -48,7 +48,7 @@ export default function DriverModeScreen() {
           </View>
           <Text style={styles.heroTitle}>Earn with Sawaari</Text>
           <Text style={styles.heroSubtitle}>
-            Choose when to drive, see ride requests nearby, and keep track of your cash fares.
+            Your own driver workspace for nearby offers, availability, and recorded cash fares.
           </Text>
           <View style={styles.benefit}>
             <Ionicons name="time-outline" size={19} color={COLORS.white} />
@@ -146,8 +146,13 @@ const styles = StyleSheet.create({
   hero: {
     marginTop: 18,
     padding: 21,
-    borderRadius: 24,
-    backgroundColor: COLORS.green,
+    borderRadius: 28,
+    backgroundColor: '#0B786F',
+    elevation: 8,
+    shadowColor: '#07151E',
+    shadowOpacity: 0.26,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 7 },
   },
   heroIcon: {
     width: 46,
@@ -187,7 +192,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#304A62',
+    backgroundColor: '#28515C',
   },
   choiceCopy: { flex: 1 },
   choiceTitle: { color: COLORS.ink, fontSize: 16, fontWeight: '800' },

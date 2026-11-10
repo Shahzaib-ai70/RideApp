@@ -14,15 +14,15 @@ import { apiRequest } from '../lib/api';
 import VehicleArt from './VehicleArt';
 
 const COLORS = {
-  ink: '#172B3A',
-  muted: '#667785',
-  green: '#245B8F',
-  lime: '#DCEAF5',
-  paper: '#F4F7FA',
-  line: '#DFE7EE',
+  ink: '#12273A',
+  muted: '#63798A',
+  green: '#0B786F',
+  lime: '#D9F5EA',
+  paper: '#F1F6F5',
+  line: '#DCE8E5',
   white: '#FFFFFF',
   red: '#C34242',
-  orange: '#D98A3C',
+  orange: '#E79A54',
 };
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'] as const;

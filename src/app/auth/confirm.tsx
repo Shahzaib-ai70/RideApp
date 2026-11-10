@@ -11,10 +11,10 @@ import { apiRequest } from '../../lib/api';
 import { pageMetadata } from '../../lib/seo';
 import type { Metadata } from 'expo-router/server';
 
-const GREEN = '#245B8F';
-const INK = '#172B3A';
-const MUTED = '#667785';
-const LINE = '#DFE7EE';
+const GREEN = '#0B786F';
+const INK = '#12273A';
+const MUTED = '#63798A';
+const LINE = '#DCE8E5';
 const WHITE = '#FFFFFF';
 
 export function generateMetadata(): Metadata {
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
     minHeight: '100%',
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: '#F4F7FA',
+    backgroundColor: '#F1F6F5',
   },
   card: {
     width: '100%',
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 16,
-    backgroundColor: '#DCEAF5',
+    backgroundColor: '#D9F5EA',
   },
   markText: { color: GREEN, fontSize: 26, fontWeight: '900' },
   title: { color: INK, fontSize: 21, fontWeight: '800', textAlign: 'center' },
@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
-    backgroundColor: '#DCEAF5',
+    backgroundColor: '#D9F5EA',
   },
   buttonDisabled: { opacity: 0.55 },
   buttonText: { color: GREEN, fontSize: 14, fontWeight: '800' },

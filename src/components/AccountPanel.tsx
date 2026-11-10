@@ -9,10 +9,10 @@ import { Text, TextInput } from './AppText';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest, saveAccessToken } from '../lib/api';
 
-const GREEN = '#245B8F';
-const INK = '#172B3A';
-const MUTED = '#667785';
-const LINE = '#DFE7EE';
+const GREEN = '#0B786F';
+const INK = '#12273A';
+const MUTED = '#63798A';
+const LINE = '#DCE8E5';
 const WHITE = '#FFFFFF';
 
 export default function AccountPanel() {
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 11,
-    backgroundColor: '#DCEAF5',
+    backgroundColor: '#D9F5EA',
   },
   buttonText: { color: GREEN, fontWeight: '800', fontSize: 13 },
   linkButton: { alignSelf: 'center', padding: 6 },

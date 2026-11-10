@@ -13,15 +13,15 @@ import { adminApi } from '../lib/adminApi';
 import { withTimeout } from '../lib/withTimeout';
 
 const COLORS = {
-  ink: '#172621',
-  muted: '#75817B',
-  green: '#0E4E3D',
-  lime: '#C8F169',
-  paper: '#F6F7F1',
-  line: '#E8EBE4',
+  ink: '#12273A',
+  muted: '#63798A',
+  green: '#0B786F',
+  lime: '#D9F5EA',
+  paper: '#F1F6F5',
+  line: '#DCE8E5',
   white: '#FFFFFF',
   red: '#C34242',
-  orange: '#EF9B54',
+  orange: '#E79A54',
 };
 
 type Summary = {

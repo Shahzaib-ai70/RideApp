@@ -19,8 +19,8 @@ export default function VehicleArt({
   selected?: boolean;
   size?: number;
 }) {
-  const plateColor = selected ? '#245B8F' : '#EDF3F8';
-  const iconColor = selected ? '#FFFFFF' : '#355B7B';
+  const plateColor = selected ? '#0B786F' : '#E5F3EF';
+  const iconColor = selected ? '#FFFFFF' : '#266B69';
 
   return (
     <View
@@ -63,10 +63,10 @@ const styles = StyleSheet.create({
     top: 4,
     left: 3,
     borderRadius: 13,
-    backgroundColor: '#D5E0E9',
+    backgroundColor: '#C8DED9',
   },
   selectedDepth: {
-    backgroundColor: '#173F67',
+    backgroundColor: '#07584F',
   },
   plate: {
     alignItems: 'center',
@@ -75,14 +75,14 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     borderWidth: 1,
     borderColor: '#FFFFFF',
-    shadowColor: '#173F67',
+    shadowColor: '#173F3B',
     shadowOpacity: 0.2,
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
   selectedPlate: {
-    borderColor: '#B9D2E6',
+    borderColor: '#A8E3D0',
     shadowOpacity: 0.28,
   },
   highlight: {
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   selectedHighlight: {
-    backgroundColor: '#8AB8DE',
+    backgroundColor: '#83D4BB',
     opacity: 0.5,
   },
   premiumBadge: {
@@ -107,6 +107,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 6,
-    backgroundColor: '#D98A3C',
+    backgroundColor: '#E79A54',
   },
 });

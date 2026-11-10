@@ -88,14 +88,14 @@ const FARE_RATES: Record<Vehicle, { base: number; perKm: number }> = {
   Premium: { base: 200, perKm: 80 },
 };
 const COLORS = {
-  ink: '#172B3A',
-  muted: '#667785',
-  green: '#245B8F',
-  lime: '#DCEAF5',
-  paper: '#F4F7FA',
-  line: '#DFE7EE',
+  ink: '#12273A',
+  muted: '#63798A',
+  green: '#0B786F',
+  lime: '#D9F5EA',
+  paper: '#F1F6F5',
+  line: '#DCE8E5',
   white: '#FFFFFF',
-  orange: '#D98A3C',
+  orange: '#E79A54',
   red: '#C34242',
 };
 
@@ -885,7 +885,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       ) : null}
       <View style={styles.mapLabel}>
         <Ionicons name="map" size={14} color={COLORS.green} />
-        <Text style={styles.mapLabelText}>MAP VIEW</Text>
+        <Text style={styles.mapLabelText}>SAWAARI · LIVE MAP</Text>
       </View>
       {!mapPickField ? (
         <Pressable
@@ -1079,7 +1079,6 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         {renderMap()}
       </View>
       <View style={[styles.bookingSheet, wideLayout && styles.bookingSheetWide]}>
-        <View style={styles.sheetHandle} />
         <ScrollView
           style={[styles.bookingScroll, wideLayout && styles.bookingScrollWide]}
           contentContainerStyle={styles.bookingContent}
@@ -1089,9 +1088,9 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         >
           <View style={styles.sheetHeading}>
             <View>
-              <Text style={styles.sheetEyebrow}>LET’S GET YOU THERE</Text>
-              <Text style={styles.sheetTitle}>Where to?</Text>
-              <Text style={styles.sheetSubtitle}>Your ride, your price.</Text>
+              <Text style={styles.sheetEyebrow}>YOUR CITY, IN MOTION</Text>
+              <Text style={styles.sheetTitle}>Plan your journey</Text>
+              <Text style={styles.sheetSubtitle}>A better ride starts with the right route.</Text>
             </View>
             <View style={styles.cashBadge}>
               <Ionicons name="cash-outline" size={16} color={COLORS.green} />
@@ -1156,8 +1155,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           {addressError ? <Text style={styles.addressNotice}>{addressError}</Text> : null}
 
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Choose your ride</Text>
-            <Text style={styles.sectionHint}>Swipe to explore</Text>
+            <Text style={styles.sectionTitle}>Choose your vehicle</Text>
+            <Text style={styles.sectionHint}>4 ride styles</Text>
           </View>
           <ScrollView
             horizontal
@@ -1193,8 +1192,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
 
           <View style={styles.offerRow}>
             <View style={styles.offerLabelWrap}>
-              <Text style={styles.sectionTitle}>Your offer</Text>
-              <Text style={styles.offerHint}>Set the price you’re happy to pay</Text>
+              <Text style={styles.sectionTitle}>Set your fare</Text>
+              <Text style={styles.offerHint}>You decide what feels fair</Text>
             </View>
             <View style={styles.offerInputWrap}>
               <Text style={styles.currencyMark}>Rs</Text>
@@ -1253,8 +1252,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             style={({ pressed }) => [styles.requestButton, pressed && styles.requestButtonPressed]}
             onPress={createRide}
           >
-            <Text style={styles.requestButtonText}>Review ride request</Text>
-            <Ionicons name="arrow-forward" size={19} color={COLORS.green} />
+            <Text style={styles.requestButtonText}>Find my ride</Text>
+            <Ionicons name="arrow-forward" size={19} color={COLORS.white} />
           </Pressable>
         </ScrollView>
       </View>
@@ -1401,22 +1400,28 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
 
   const renderProfileScreen = () => (
     <View style={styles.secondaryScreen}>
-      <View style={styles.secondaryHeader}>
-        <Text style={styles.secondaryTitle}>Your account</Text>
-        <Text style={styles.secondarySubtitle}>Sign in to request rides or drive</Text>
+      <View style={styles.profilePageHeading}>
+        <Text style={styles.profilePageEyebrow}>YOUR SAWAARI</Text>
+        <Text style={styles.secondaryTitle}>Profile & preferences</Text>
+        <Text style={styles.secondarySubtitle}>Everything for your next journey, in one place.</Text>
       </View>
-      <AccountPanel />
-      <View style={styles.profileCard}>
+      <View style={styles.profileHero}>
+        <View style={styles.profileHeroGlow} />
         <View style={styles.profileAvatar}>
           <Ionicons name="person" size={25} color={COLORS.green} />
         </View>
         <View style={styles.profileCopy}>
-          <Text style={styles.profileName}>Welcome to Sawaari</Text>
+          <Text style={styles.profileEyebrow}>SAWAARI ACCOUNT</Text>
+          <Text style={styles.profileName}>
+            {session?.user.email ? 'Your travel profile' : 'Your journey, your account'}
+          </Text>
           <Text style={styles.profileSubtext}>
-            {session?.user.email ?? 'Create one account for rider and driver mode.'}
+            {session?.user.email ?? 'One account for rides and driver mode.'}
           </Text>
         </View>
+        <Ionicons name="sparkles" size={19} color="#B5F1DF" />
       </View>
+      <AccountPanel />
       <View style={styles.profileMenu}>
         <Pressable
           accessibilityRole="button"
@@ -1497,7 +1502,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.paper },
+  safeArea: { flex: 1, backgroundColor: '#11283A' },
   app: { flex: 1, backgroundColor: COLORS.paper },
   rideScreen: { flex: 1, minHeight: 0 },
   rideScreenWide: {
@@ -1511,23 +1516,24 @@ const styles = StyleSheet.create({
   mapColumn: { flex: 1, minHeight: 0 },
   mapColumnWide: { flex: 1, flexBasis: 0, minWidth: 0 },
   header: {
-    height: 68,
-    paddingHorizontal: 22,
+    height: 72,
+    paddingHorizontal: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: '#11283A',
   },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   cityBadge: {
     height: 35,
     paddingHorizontal: 11,
     borderRadius: 13,
-    backgroundColor: '#EAF1F7',
+    backgroundColor: '#1C394A',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
   },
-  cityBadgeText: { color: COLORS.green, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+  cityBadgeText: { color: '#B5F1DF', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
   brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   brandMark: {
     width: 41,
@@ -1535,18 +1541,18 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.lime,
+    backgroundColor: '#B5F1DF',
     transform: [{ rotate: '-8deg' }],
   },
-  brandName: { fontSize: 22, fontWeight: '800', letterSpacing: -0.9, color: COLORS.ink },
-  brandTagline: { marginTop: 1, fontSize: 8, fontWeight: '700', letterSpacing: 1.4, color: COLORS.muted },
+  brandName: { fontSize: 22, fontWeight: '800', letterSpacing: -0.9, color: COLORS.white },
+  brandTagline: { marginTop: 1, fontSize: 8, fontWeight: '700', letterSpacing: 1.4, color: '#A8C1C8' },
   avatarButton: {
     width: 39,
     height: 39,
     borderRadius: 20,
-    backgroundColor: COLORS.white,
+    backgroundColor: '#1C394A',
     borderWidth: 1,
-    borderColor: COLORS.line,
+    borderColor: '#355162',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1557,9 +1563,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     overflow: 'hidden',
     borderRadius: 25,
-    backgroundColor: '#E4EBF1',
-    borderWidth: 1,
-    borderColor: '#DFE7EE',
+    backgroundColor: '#DCE9E5',
+    borderWidth: 3,
+    borderColor: '#11283A',
   },
   mapFrameWide: {
     marginHorizontal: 0,
@@ -1578,12 +1584,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: COLORS.white,
     elevation: 3,
-    shadowColor: '#172B3A',
+    shadowColor: '#07151E',
     shadowOpacity: 0.12,
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
   },
-  mapLabelText: { fontSize: 9, fontWeight: '800', letterSpacing: 1, color: COLORS.ink },
+  mapLabelText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.8, color: COLORS.ink },
   locationPrompt: {
     position: 'absolute',
     top: 60,
@@ -1597,7 +1603,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: COLORS.white,
     elevation: 4,
-    shadowColor: '#172B3A',
+    shadowColor: '#07151E',
     shadowOpacity: 0.14,
     shadowRadius: 7,
     shadowOffset: { width: 0, height: 3 },
@@ -1652,7 +1658,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     backgroundColor: COLORS.white,
     elevation: 5,
-    shadowColor: '#172B3A',
+    shadowColor: '#07151E',
     shadowOpacity: 0.16,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
@@ -1664,7 +1670,7 @@ const styles = StyleSheet.create({
     marginTop: 9,
     paddingHorizontal: 11,
     borderWidth: 1,
-    borderColor: '#DFE7EE',
+    borderColor: COLORS.line,
     borderRadius: 11,
     color: COLORS.ink,
     fontSize: 12,
@@ -1702,7 +1708,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 14,
-    backgroundColor: COLORS.white,
+    backgroundColor: '#183448',
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 3,
@@ -1721,7 +1727,7 @@ const styles = StyleSheet.create({
     elevation: 20,
     paddingHorizontal: 18,
     paddingTop: 10,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.paper,
   },
   searchHeader: {
     minHeight: 58,
@@ -1736,7 +1742,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.paper,
+    backgroundColor: COLORS.white,
   },
   searchTitle: { color: COLORS.ink, fontSize: 17, fontWeight: '800' },
   searchSubtitle: { marginTop: 3, color: COLORS.muted, fontSize: 11 },
@@ -1744,12 +1750,12 @@ const styles = StyleSheet.create({
     minHeight: 54,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#DFE7EE',
+    borderColor: COLORS.line,
     borderRadius: 15,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#F6F9FC',
+    backgroundColor: COLORS.white,
   },
   searchInput: {
     flex: 1,
@@ -1772,7 +1778,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: COLORS.paper,
   },
-  searchScopeButtonSelected: { backgroundColor: COLORS.green },
+  searchScopeButtonSelected: { backgroundColor: '#0B786F' },
   searchScopeText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   searchScopeTextSelected: { color: COLORS.white },
   searchMapPickButton: {
@@ -1780,12 +1786,12 @@ const styles = StyleSheet.create({
     marginTop: 7,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#DFE7EE',
+    borderColor: COLORS.line,
     borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#F6F9FC',
+    backgroundColor: COLORS.white,
   },
   searchMapPickText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
   searchResults: { flex: 1, marginTop: 8 },
@@ -1813,7 +1819,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EAF1F7',
+    backgroundColor: '#DDF3EC',
   },
   searchResultCopy: { flex: 1 },
   searchResultTitle: { color: COLORS.ink, fontSize: 12, fontWeight: '700', lineHeight: 17 },
@@ -1840,21 +1846,21 @@ const styles = StyleSheet.create({
   bookingSheet: {
     flexGrow: 0,
     flexShrink: 1,
-    maxHeight: '64%',
-    marginHorizontal: 10,
-    paddingHorizontal: 20,
-    paddingTop: 11,
-    paddingBottom: 14,
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
+    maxHeight: '68%',
+    marginHorizontal: 12,
+    marginBottom: 10,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
+    borderRadius: 25,
     borderWidth: 1,
-    borderColor: COLORS.line,
-    backgroundColor: COLORS.white,
-    elevation: 8,
-    shadowColor: '#193328',
-    shadowOpacity: 0.09,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: -6 },
+    borderColor: '#FFFFFF',
+    backgroundColor: '#FBFDFC',
+    elevation: 9,
+    shadowColor: '#10293A',
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
   },
   bookingSheetWide: {
     flexGrow: 0,
@@ -1863,34 +1869,26 @@ const styles = StyleSheet.create({
     width: 410,
     maxHeight: '100%',
     marginHorizontal: 0,
-    borderRadius: 25,
+    borderRadius: 27,
     paddingHorizontal: 22,
-    paddingTop: 18,
-    paddingBottom: 18,
+    paddingTop: 22,
+    paddingBottom: 20,
   },
   bookingScroll: { flexGrow: 0, flexShrink: 1 },
   bookingScrollWide: { flex: 1, flexGrow: 1, minHeight: 0 },
   bookingContent: { paddingBottom: 10 },
-  sheetHandle: {
-    width: 39,
-    height: 4,
-    borderRadius: 3,
-    alignSelf: 'center',
-    marginBottom: 15,
-    backgroundColor: '#D8DED6',
-  },
   sheetHeading: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 15,
   },
-  sheetEyebrow: { marginBottom: 5, color: '#789080', fontSize: 9, fontWeight: '800', letterSpacing: 1.4 },
-  sheetTitle: { color: COLORS.ink, fontSize: 26, fontWeight: '800', letterSpacing: -0.9 },
+  sheetEyebrow: { marginBottom: 7, color: COLORS.green, fontSize: 9, fontWeight: '800', letterSpacing: 1.6 },
+  sheetTitle: { color: COLORS.ink, fontSize: 25, fontWeight: '800', letterSpacing: -0.9 },
   sheetSubtitle: { marginTop: 3, color: COLORS.muted, fontSize: 12, fontWeight: '500' },
   cashBadge: {
     borderWidth: 1,
-    borderColor: '#DDE4D9',
+    borderColor: COLORS.line,
     borderRadius: 13,
     backgroundColor: COLORS.white,
     paddingHorizontal: 12,
@@ -1904,11 +1902,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     minHeight: 104,
     backgroundColor: COLORS.white,
-    borderRadius: 17,
+    borderRadius: 19,
     borderWidth: 1,
     borderColor: COLORS.line,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   routeRail: { width: 22, alignItems: 'center', paddingTop: 18, paddingBottom: 16 },
   routeCircle: {
@@ -1916,10 +1914,10 @@ const styles = StyleSheet.create({
     height: 9,
     borderRadius: 5,
     borderWidth: 2,
-    borderColor: COLORS.green,
+    borderColor: '#0B786F',
   },
   routeConnector: { width: 1, flex: 1, minHeight: 16, borderStyle: 'dashed', borderWidth: 0.7, borderColor: '#A8B6C2' },
-  routeSquare: { width: 8, height: 8, borderRadius: 2, backgroundColor: COLORS.orange },
+  routeSquare: { width: 8, height: 8, borderRadius: 3, backgroundColor: COLORS.orange },
   routeFields: { flex: 1 },
   routeField: {
     flex: 1,
@@ -1928,14 +1926,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderRadius: 9,
+    borderRadius: 13,
   },
   routeFieldCopy: { flex: 1, paddingRight: 8 },
-  routeCaption: { fontSize: 9, fontWeight: '800', letterSpacing: 1.1, color: COLORS.muted },
+  routeCaption: { fontSize: 8, fontWeight: '800', letterSpacing: 1.2, color: COLORS.green },
   routeValue: { marginTop: 4, fontSize: 12, fontWeight: '600', color: COLORS.ink },
   routePlaceholder: { fontWeight: '500', color: '#8996A1' },
-  routeDivider: { height: 1, marginLeft: 9, backgroundColor: COLORS.line },
-  sectionHeader: { marginTop: 17, marginBottom: 9, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  routeDivider: { height: 1, marginLeft: 9, backgroundColor: '#E9EFED' },
+  sectionHeader: { marginTop: 18, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: COLORS.ink, fontSize: 13, fontWeight: '800' },
   sectionHint: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
   vehicleList: { gap: 9, paddingRight: 8 },
@@ -1944,12 +1942,17 @@ const styles = StyleSheet.create({
     height: 83,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
+    borderRadius: 19,
     borderWidth: 1,
-    borderColor: COLORS.line,
+    borderColor: '#E6EFEC',
     backgroundColor: COLORS.white,
+    elevation: 3,
+    shadowColor: '#1B3A4B',
+    shadowOpacity: 0.08,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
   },
-  vehicleCardSelected: { borderWidth: 1.5, borderColor: COLORS.green, backgroundColor: '#EAF1F7' },
+  vehicleCardSelected: { borderWidth: 1.5, borderColor: COLORS.green, backgroundColor: '#E7F7F1' },
   vehicleName: { marginTop: 5, color: COLORS.ink, fontSize: 11, fontWeight: '700' },
   vehicleNameSelected: { color: COLORS.green },
   vehicleDetail: { marginTop: 2, color: COLORS.muted, fontSize: 9, fontWeight: '500' },
@@ -1971,7 +1974,7 @@ const styles = StyleSheet.create({
     height: 47,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#DFE7EE',
+    borderColor: COLORS.line,
     paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1996,7 +1999,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 12,
-    backgroundColor: '#EFF5FA',
+    backgroundColor: '#EAF7F3',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -2015,17 +2018,19 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 16,
     paddingHorizontal: 18,
-    backgroundColor: COLORS.lime,
+    backgroundColor: '#0B786F',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 9,
   },
   requestButtonPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
-  requestButtonText: { color: COLORS.green, fontSize: 14, fontWeight: '800' },
-  secondaryScreen: { flex: 1, paddingHorizontal: 20, paddingTop: 16, backgroundColor: COLORS.paper },
+  requestButtonText: { color: COLORS.white, fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
+  secondaryScreen: { flex: 1, paddingHorizontal: 20, paddingTop: 19, backgroundColor: COLORS.paper },
   secondaryHeader: { marginBottom: 20 },
-  secondaryTitle: { color: COLORS.ink, fontSize: 27, fontWeight: '800', letterSpacing: -0.8 },
+  profilePageHeading: { marginBottom: 17 },
+  profilePageEyebrow: { marginBottom: 7, color: COLORS.green, fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
+  secondaryTitle: { color: COLORS.ink, fontSize: 26, fontWeight: '800', letterSpacing: -0.8 },
   secondarySubtitle: { marginTop: 4, color: COLORS.muted, fontSize: 12 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 35, paddingBottom: 65 },
   emptyIcon: { width: 68, height: 68, borderRadius: 23, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF1F7' },
@@ -2037,9 +2042,9 @@ const styles = StyleSheet.create({
   tripList: { gap: 11, paddingBottom: 22 },
   localNotice: { padding: 12, borderRadius: 12, backgroundColor: '#EAF1F7', flexDirection: 'row', alignItems: 'center', gap: 8 },
   localNoticeText: { flex: 1, color: COLORS.green, fontSize: 10, fontWeight: '600' },
-  tripCard: { padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  tripCard: { padding: 15, borderRadius: 19, borderWidth: 1, borderColor: '#E6EFEC', backgroundColor: COLORS.white, elevation: 3, shadowColor: '#173A4B', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   tripCardHeader: { flexDirection: 'row', alignItems: 'center' },
-  tripVehicle: { width: 39, height: 39, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF1F7' },
+  tripVehicle: { width: 39, height: 39, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E2F5EF' },
   tripSummary: { flex: 1, marginLeft: 10 },
   tripVehicleName: { color: COLORS.ink, fontSize: 12, fontWeight: '800' },
   tripTime: { marginTop: 3, color: COLORS.muted, fontSize: 9 },
@@ -2077,19 +2082,21 @@ const styles = StyleSheet.create({
   noDrivers: { marginTop: 11, padding: 10, borderRadius: 10, color: COLORS.muted, backgroundColor: '#F4F7FA', fontSize: 10, lineHeight: 15 },
   errorBanner: { padding: 11, borderRadius: 11, backgroundColor: '#FBE9E8', color: COLORS.red, fontSize: 11 },
   addressNotice: { marginTop: 6, color: '#A96021', fontSize: 9, lineHeight: 13 },
-  profileCard: { padding: 15, borderRadius: 17, backgroundColor: COLORS.green, flexDirection: 'row', alignItems: 'center' },
-  profileAvatar: { width: 47, height: 47, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.lime },
+  profileHero: { position: 'relative', overflow: 'hidden', padding: 18, borderRadius: 23, backgroundColor: '#11283A', flexDirection: 'row', alignItems: 'center', elevation: 7, shadowColor: '#11283A', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+  profileHeroGlow: { position: 'absolute', top: -38, right: 24, width: 128, height: 128, borderRadius: 64, backgroundColor: '#1C4E55', opacity: 0.75 },
+  profileAvatar: { width: 54, height: 54, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#B5F1DF', borderWidth: 3, borderColor: '#FFFFFF' },
   profileCopy: { flex: 1, marginLeft: 12 },
+  profileEyebrow: { marginBottom: 4, color: '#B5F1DF', fontSize: 8, fontWeight: '800', letterSpacing: 1.3 },
   profileName: { color: COLORS.white, fontSize: 13, fontWeight: '800' },
-  profileSubtext: { marginTop: 4, color: '#D8E5EF', fontSize: 10, lineHeight: 15 },
-  profileMenu: { marginTop: 15, paddingHorizontal: 13, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
-  menuItem: { minHeight: 62, flexDirection: 'row', alignItems: 'center' },
-  menuIcon: { width: 35, height: 35, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF1F7' },
+  profileSubtext: { marginTop: 4, color: '#C4D5DA', fontSize: 10, lineHeight: 15 },
+  profileMenu: { marginTop: 14, gap: 8 },
+  menuItem: { minHeight: 66, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: '#E7EFED', backgroundColor: COLORS.white, flexDirection: 'row', alignItems: 'center', elevation: 2, shadowColor: '#173A4B', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } },
   menuItemPressed: { opacity: 0.72 },
+  menuIcon: { width: 39, height: 39, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E2F5EF' },
   menuCopy: { flex: 1, marginLeft: 10 },
-  menuTitle: { color: COLORS.ink, fontSize: 11, fontWeight: '700' },
+  menuTitle: { color: COLORS.ink, fontSize: 12, fontWeight: '700' },
   menuSubtitle: { marginTop: 3, color: COLORS.muted, fontSize: 9 },
-  menuDivider: { height: 1, marginLeft: 45, backgroundColor: COLORS.line },
-  profileFootnote: { marginTop: 15, padding: 13, borderRadius: 13, backgroundColor: '#FFF4E8', flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+  menuDivider: { height: 0 },
+  profileFootnote: { marginTop: 13, padding: 13, borderRadius: 16, backgroundColor: '#FFF3E7', flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
   profileFootnoteText: { flex: 1, color: '#775333', fontSize: 10, lineHeight: 15 },
 });
