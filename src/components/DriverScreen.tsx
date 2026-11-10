@@ -166,9 +166,11 @@ export default function DriverScreen() {
   const [displayName, setDisplayName] = useState('');
   const [vehicle, setVehicle] = useState<Vehicle>('Car');
   const [isOnline, setIsOnline] = useState(false);
+  const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [requests, setRequests] = useState<NearbyRequest[]>([]);
   const [activeRide, setActiveRide] = useState<NearbyRequest | null>(null);
+  const [activeRideLoaded, setActiveRideLoaded] = useState(false);
   const [requestError, setRequestError] = useState('');
   const [application, setApplication] = useState<DriverApplicationSummary | null>(null);
   const [applicationLoading, setApplicationLoading] = useState(true);
@@ -181,6 +183,7 @@ export default function DriverScreen() {
   const activeRideWatch = useRef<Location.LocationSubscription | null>(null);
   const mounted = useRef(true);
   const applicationLoadVersion = useRef(0);
+  const availabilityRestoreUser = useRef<string | null>(null);
   const showMessage = useCallback((title: string, message: string) => {
     notify({ title, message });
   }, [notify]);
@@ -306,6 +309,9 @@ export default function DriverScreen() {
       })
       .catch((error: unknown) => {
         if (active) setRequestError(error instanceof Error ? error.message : 'Could not load your active ride.');
+      })
+      .finally(() => {
+        if (active) setActiveRideLoaded(true);
       });
     return () => {
       active = false;
@@ -396,7 +402,11 @@ export default function DriverScreen() {
     return () => clearInterval(timer);
   }, [application?.status, refreshApplication, session]);
 
-  const setPresence = async (online: boolean, point: MapPoint, nextVehicle = vehicle) => {
+  const setPresence = useCallback(async (
+    online: boolean,
+    point: MapPoint,
+    nextVehicle = vehicle,
+  ) => {
     await apiRequest('/driver/presence', {
       method: 'POST',
       body: JSON.stringify({
@@ -407,7 +417,54 @@ export default function DriverScreen() {
         longitude: point.longitude,
       }),
     });
-  };
+  }, [displayName, vehicle]);
+
+  const startOnline = useCallback(async (nextVehicle = vehicle) => {
+    if (displayName.trim().length < 2) {
+      throw new Error('Enter your name before going online.');
+    }
+    let permission = await Location.getForegroundPermissionsAsync();
+    if (!permission.granted) permission = await Location.requestForegroundPermissionsAsync();
+    if (!permission.granted) {
+      throw new Error('Allow location access to receive nearby ride requests.');
+    }
+    const current = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    const point = { latitude: current.coords.latitude, longitude: current.coords.longitude };
+    const subscription = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.Balanced,
+        timeInterval: 15000,
+        distanceInterval: 40,
+      },
+      (position) => {
+        const nextPoint = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+        setLastPoint(nextPoint);
+        void setPresence(true, nextPoint, nextVehicle).catch((error: unknown) => {
+          if (mounted.current) {
+            setRequestError(error instanceof Error
+              ? `Could not refresh your driver location: ${error.message}`
+              : 'Could not refresh your driver location.');
+          }
+        });
+      },
+    );
+    try {
+      await setPresence(true, point, nextVehicle);
+    } catch (error: unknown) {
+      subscription.remove();
+      throw error;
+    }
+    watch.current?.remove();
+    watch.current = subscription;
+    setLastPoint(point);
+    setIsOnline(true);
+    setAvailabilityLoading(false);
+  }, [displayName, setPresence, vehicle]);
 
   const toggleOnline = async () => {
     if (!session) return;
@@ -432,41 +489,7 @@ export default function DriverScreen() {
         return;
       }
 
-      if (displayName.trim().length < 2) {
-        throw new Error('Enter your name before going online.');
-      }
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (!permission.granted) {
-        throw new Error('Allow location access to receive nearby ride requests.');
-      }
-      const current = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      const point = { latitude: current.coords.latitude, longitude: current.coords.longitude };
-      watch.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 15000,
-          distanceInterval: 40,
-        },
-        (position) => {
-          const nextPoint = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-          setLastPoint(nextPoint);
-          void setPresence(true, nextPoint).catch((error: unknown) => {
-            if (mounted.current) {
-              setRequestError(error instanceof Error
-                ? `Could not refresh your driver location: ${error.message}`
-                : 'Could not refresh your driver location.');
-            }
-          });
-        },
-      );
-      await setPresence(true, point);
-      setLastPoint(point);
-      setIsOnline(true);
+      await startOnline();
     } catch (error: unknown) {
       watch.current?.remove();
       watch.current = null;
@@ -478,6 +501,55 @@ export default function DriverScreen() {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (!session || application?.status !== 'approved' || !activeRideLoaded || dashboardLoading) return;
+    const userId = session.user.id;
+    if (availabilityRestoreUser.current === userId) return;
+    availabilityRestoreUser.current = userId;
+    let active = true;
+
+    const restoreAvailability = async () => {
+      try {
+        const presence = await apiRequest<unknown>('/driver/presence');
+        if (typeof presence !== 'object' || presence === null) {
+          throw new Error('The server returned invalid driver availability.');
+        }
+        const value = presence as Record<string, unknown>;
+        if (typeof value.is_online !== 'boolean'
+          || typeof value.vehicle !== 'string'
+          || (value.latitude !== null && typeof value.latitude !== 'number')
+          || (value.longitude !== null && typeof value.longitude !== 'number')) {
+          throw new Error('The server returned invalid driver availability.');
+        }
+        if (!active) return;
+        if (typeof value.latitude === 'number' && Number.isFinite(value.latitude)
+          && typeof value.longitude === 'number' && Number.isFinite(value.longitude)) {
+          setLastPoint({ latitude: value.latitude, longitude: value.longitude });
+        }
+        if (!value.is_online || activeRide) {
+          setIsOnline(false);
+          return;
+        }
+        setIsOnline(true);
+        if (VEHICLES.includes(value.vehicle as Vehicle)) setVehicle(value.vehicle as Vehicle);
+        await startOnline(value.vehicle as Vehicle);
+      } catch (error: unknown) {
+        if (active) {
+          setRequestError(error instanceof Error
+            ? `Could not restore online availability: ${error.message}`
+            : 'Could not restore online availability.');
+        }
+      } finally {
+        if (active) setAvailabilityLoading(false);
+      }
+    };
+
+    void restoreAvailability();
+    return () => {
+      active = false;
+    };
+  }, [activeRide, activeRideLoaded, application?.status, dashboardLoading, session, startOnline]);
 
   const acceptRequest = async (request: NearbyRequest) => {
     const confirmed = await confirm({
@@ -769,12 +841,12 @@ export default function DriverScreen() {
         </View>
         <Pressable
           accessibilityRole="switch"
-          accessibilityState={{ checked: isOnline, disabled: busy }}
-          disabled={busy || Boolean(activeRide)}
+          accessibilityState={{ checked: isOnline, disabled: busy || availabilityLoading }}
+          disabled={busy || availabilityLoading || Boolean(activeRide)}
           onPress={() => void toggleOnline()}
           style={[styles.onlineButton, isOnline && styles.offlineButton]}
         >
-          {busy ? <ActivityIndicator color={COLORS.white} /> : (
+          {busy || availabilityLoading ? <ActivityIndicator color={COLORS.white} /> : (
             <>
               <Ionicons name={isOnline ? 'pause-circle-outline' : 'radio-outline'} size={19} color={COLORS.white} />
               <Text style={styles.onlineButtonText}>{isOnline ? 'Go offline' : 'Go online'}</Text>
@@ -784,8 +856,10 @@ export default function DriverScreen() {
         <Text style={styles.statusText}>
           {activeRide
             ? 'Offline during active ride'
+            : availabilityLoading
+              ? 'Restoring saved availability…'
             : isOnline
-              ? 'Online · sharing foreground location for nearby matching'
+              ? 'Online · stays online after refresh; keep this screen open to share current location'
               : 'Offline · no ride requests will be sent'}
         </Text>
       </View>
@@ -795,7 +869,9 @@ export default function DriverScreen() {
         <View style={styles.empty}>
           <Ionicons name="search-outline" size={26} color={COLORS.green} />
           <Text style={styles.emptyTitle}>Looking for nearby requests</Text>
-          <Text style={styles.emptyCopy}>New matching ride requests will appear here.</Text>
+          <Text style={styles.emptyCopy}>
+            Requests appear when the vehicle matches and pickup is within 10 km. Keep this screen open so your location can refresh.
+          </Text>
         </View>
       ) : null}
       {requests.map((request) => (

@@ -855,6 +855,30 @@ async function route(request, response, url) {
     return;
   }
 
+  if (method === 'GET' && pathname === '/api/driver/presence') {
+    const user = await requireUser(request);
+    const result = await pool.query(
+      `select dp.is_online, dp.vehicle, dp.latitude, dp.longitude,
+              exists(select 1 from ride_requests r
+                     where r.driver_id=dp.user_id and r.status='accepted') as has_active_ride
+       from driver_presence dp
+       where dp.user_id=$1`,
+      [user.id],
+    );
+    if (!result.rowCount) {
+      sendJson(response, 200, { is_online: false, vehicle: '', latitude: null, longitude: null });
+      return;
+    }
+    const presence = result.rows[0];
+    sendJson(response, 200, {
+      is_online: presence.is_online && !presence.has_active_ride,
+      vehicle: presence.vehicle,
+      latitude: presence.latitude,
+      longitude: presence.longitude,
+    });
+    return;
+  }
+
   if (method === 'POST' && pathname === '/api/driver/presence') {
     const user = await requireUser(request);
     const body = await readJson(request);

@@ -1308,7 +1308,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           </View>
         ) : (
           <Text style={styles.noDrivers}>
-            No online drivers found nearby yet. Your request is still searching.
+            No approved online drivers matching {ride.vehicle} were found within 10 km yet. Your request is still searching; a driver using the same account as you will not see your request.
           </Text>
         )}
 
