@@ -1623,48 +1623,100 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         && activeRideStatus === 'searching'
         && rideStatuses[activeRide.id]?.driver_offer_status === 'pending'
         && typeof rideStatuses[activeRide.id]?.driver_offer_fare === 'number' ? (
-        <View accessibilityLiveRegion="polite" style={styles.driverOfferPopup}>
-          <View style={styles.driverOfferPopupHeading}>
-            <View style={styles.driverOfferPopupIcon}>
-              <Ionicons
-                name={rideStatuses[activeRide.id]?.offer_driver_vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
-                size={19}
-                color={COLORS.green}
-              />
+        <View pointerEvents="box-none" style={styles.driverOfferPopupLayer}>
+          <View style={styles.driverOfferPopupScrim} />
+          <View accessibilityLiveRegion="polite" style={styles.driverOfferPopup}>
+            <View style={styles.driverOfferPopupHeader}>
+              <View style={styles.driverOfferPopupIcon}>
+                <Ionicons
+                  name={rideStatuses[activeRide.id]?.offer_driver_vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
+                  size={20}
+                  color={COLORS.ink}
+                />
+              </View>
+              <View style={styles.driverOfferPopupCopy}>
+                <Text style={styles.driverOfferPopupEyebrow}>FARE OFFER RECEIVED</Text>
+                <Text numberOfLines={1} style={styles.driverOfferPopupName}>
+                  {rideStatuses[activeRide.id]?.offer_driver_name || 'Nearby driver'}
+                </Text>
+                <Text style={styles.driverOfferPopupVehicle}>
+                  {rideStatuses[activeRide.id]?.offer_driver_vehicle || activeRide.vehicle} · Verified Sawaari driver
+                </Text>
+              </View>
+              <View style={styles.newOfferBadge}>
+                <View style={styles.newOfferDot} />
+                <Text style={styles.newOfferText}>NEW</Text>
+              </View>
             </View>
-            <View style={styles.driverOfferPopupCopy}>
-              <Text style={styles.driverOfferPopupEyebrow}>NEW DRIVER OFFER</Text>
-              <Text style={styles.driverOfferPopupName}>
-                {rideStatuses[activeRide.id]?.offer_driver_name || 'Nearby driver'}
-                {rideStatuses[activeRide.id]?.offer_driver_vehicle
-                  ? ` · ${rideStatuses[activeRide.id].offer_driver_vehicle}`
-                  : ''}
-              </Text>
+            <View style={styles.driverOfferFarePanel}>
+              <View>
+                <Text style={styles.driverOfferFareLabel}>PROPOSED FARE</Text>
+                <Text style={styles.driverOfferPopupFare}>
+                  PKR {rideStatuses[activeRide.id].driver_offer_fare?.toLocaleString()}
+                </Text>
+              </View>
+              <View style={styles.cashOnlyBadge}>
+                <Ionicons name="cash-outline" size={14} color={COLORS.green} />
+                <Text style={styles.cashOnlyText}>CASH</Text>
+              </View>
             </View>
-            <Text style={styles.driverOfferPopupFare}>
-              PKR {rideStatuses[activeRide.id].driver_offer_fare?.toLocaleString()}
+            <View style={styles.driverOfferRoute}>
+              <View style={styles.driverOfferRouteRail}>
+                <View style={styles.routeCircleSmall} />
+                <View style={styles.tripConnector} />
+                <View style={styles.routeSquareSmall} />
+              </View>
+              <View style={styles.driverOfferRouteCopy}>
+                <View>
+                  <Text style={styles.driverOfferRouteLabel}>PICKUP</Text>
+                  <Text numberOfLines={1} style={styles.driverOfferRouteValue}>
+                    {addressOrCoordinates(activeRide.pickupAddress, activeRide.pickup)}
+                  </Text>
+                </View>
+                <View style={styles.driverOfferRouteDivider} />
+                <View>
+                  <Text style={styles.driverOfferRouteLabel}>DESTINATION</Text>
+                  <Text numberOfLines={1} style={styles.driverOfferRouteValue}>
+                    {addressOrCoordinates(activeRide.destinationAddress, activeRide.destination)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <Text style={styles.driverOfferPopupHint}>
+              Accept to confirm this driver at the proposed fare, or decline to continue searching.
             </Text>
-          </View>
-          <Text style={styles.driverOfferPopupHint}>Accept this fare to confirm your driver, or reject it to keep searching.</Text>
-          <View style={styles.driverOfferPopupActions}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={respondingToOffer}
-              onPress={() => void respondToDriverOffer(activeRide, 'reject')}
-              style={[styles.rejectDriverOfferButton, respondingToOffer && styles.requestButtonPressed]}
-            >
-              <Text style={styles.rejectDriverOfferText}>Reject offer</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={respondingToOffer}
-              onPress={() => void respondToDriverOffer(activeRide, 'accept')}
-              style={[styles.acceptDriverOfferButton, respondingToOffer && styles.requestButtonPressed]}
-            >
-              {respondingToOffer
-                ? <ActivityIndicator size="small" color={COLORS.white} />
-                : <Text style={styles.acceptDriverOfferText}>Accept fare</Text>}
-            </Pressable>
+            <View style={styles.driverOfferPopupActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={respondingToOffer}
+                onPress={() => void respondToDriverOffer(activeRide, 'reject')}
+                style={({ pressed }) => [
+                  styles.rejectDriverOfferButton,
+                  (pressed || respondingToOffer) && styles.requestButtonPressed,
+                ]}
+              >
+                <Ionicons name="close-circle-outline" size={17} color={COLORS.red} />
+                <Text style={styles.rejectDriverOfferText}>Decline</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={respondingToOffer}
+                onPress={() => void respondToDriverOffer(activeRide, 'accept')}
+                style={({ pressed }) => [
+                  styles.acceptDriverOfferButton,
+                  (pressed || respondingToOffer) && styles.requestButtonPressed,
+                ]}
+              >
+                {respondingToOffer
+                  ? <ActivityIndicator size="small" color={COLORS.white} />
+                  : (
+                    <>
+                      <Ionicons name="checkmark-circle-outline" size={17} color={COLORS.white} />
+                      <Text style={styles.acceptDriverOfferText}>Accept fare</Text>
+                    </>
+                  )}
+              </Pressable>
+            </View>
           </View>
         </View>
       ) : null}
@@ -2597,35 +2649,82 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  driverOfferPopup: {
+  driverOfferPopupLayer: {
     position: 'absolute',
-    top: 82,
-    left: 12,
-    right: 12,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     zIndex: 20,
     elevation: 10,
-    padding: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#CDE5DD',
-    backgroundColor: COLORS.white,
-    shadowColor: '#12273A',
-    shadowOpacity: 0.18,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
+    alignItems: 'center',
+    paddingHorizontal: 12,
   },
-  driverOfferPopupHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  driverOfferPopupIcon: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.lime },
+  driverOfferPopupScrim: {
+    position: 'absolute',
+    top: 72,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(17, 40, 58, 0.18)',
+  },
+  driverOfferPopup: {
+    width: '100%',
+    maxWidth: 520,
+    marginTop: 82,
+    padding: 15,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#D5E4E0',
+    backgroundColor: COLORS.white,
+    gap: 12,
+    shadowColor: '#10283A',
+    shadowOpacity: 0.24,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  driverOfferPopupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingBottom: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.line,
+  },
+  driverOfferPopupIcon: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.lime },
   driverOfferPopupCopy: { flex: 1, minWidth: 0 },
-  driverOfferPopupEyebrow: { color: COLORS.green, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
-  driverOfferPopupName: { marginTop: 3, color: COLORS.ink, fontSize: 12, fontWeight: '800' },
-  driverOfferPopupFare: { color: COLORS.green, fontSize: 17, fontWeight: '900' },
-  driverOfferPopupHint: { marginTop: 9, color: COLORS.muted, fontSize: 10, lineHeight: 15 },
-  driverOfferPopupActions: { flexDirection: 'row', gap: 9, marginTop: 11 },
-  rejectDriverOfferButton: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: '#FBE9E8', alignItems: 'center', justifyContent: 'center' },
-  rejectDriverOfferText: { color: COLORS.red, fontSize: 11, fontWeight: '800' },
-  acceptDriverOfferButton: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center' },
-  acceptDriverOfferText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
+  driverOfferPopupEyebrow: { color: COLORS.green, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  driverOfferPopupName: { marginTop: 3, color: COLORS.ink, fontSize: 14, fontWeight: '900' },
+  driverOfferPopupVehicle: { marginTop: 2, color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+  newOfferBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 20, backgroundColor: '#E8F4EE' },
+  newOfferDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.green },
+  newOfferText: { color: COLORS.green, fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
+  driverOfferFarePanel: {
+    minHeight: 67,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    borderRadius: 13,
+    backgroundColor: '#F4F8F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  driverOfferFareLabel: { color: COLORS.muted, fontSize: 8, fontWeight: '900', letterSpacing: 1 },
+  driverOfferPopupFare: { marginTop: 2, color: COLORS.green, fontSize: 23, fontWeight: '900', letterSpacing: -0.5 },
+  cashOnlyBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 9, backgroundColor: COLORS.lime },
+  cashOnlyText: { color: COLORS.green, fontSize: 8, fontWeight: '900', letterSpacing: 0.6 },
+  driverOfferRoute: { flexDirection: 'row', gap: 10, paddingHorizontal: 3 },
+  driverOfferRouteRail: { width: 10, alignItems: 'center', paddingTop: 3, paddingBottom: 4 },
+  driverOfferRouteCopy: { flex: 1, gap: 8 },
+  driverOfferRouteLabel: { color: COLORS.muted, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
+  driverOfferRouteValue: { marginTop: 2, color: COLORS.ink, fontSize: 10, fontWeight: '700' },
+  driverOfferRouteDivider: { height: 1, backgroundColor: COLORS.line },
+  driverOfferPopupHint: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  driverOfferPopupActions: { flexDirection: 'row', gap: 10, paddingTop: 2 },
+  rejectDriverOfferButton: { flex: 1, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: '#F0D8D6', backgroundColor: '#FFF8F7', flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' },
+  rejectDriverOfferText: { color: COLORS.red, fontSize: 11, fontWeight: '900' },
+  acceptDriverOfferButton: { flex: 1.3, minHeight: 46, borderRadius: 12, backgroundColor: COLORS.green, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', elevation: 2 },
+  acceptDriverOfferText: { color: COLORS.white, fontSize: 11, fontWeight: '900' },
   matchText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
   liveLocationNote: { marginTop: 6, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
   nearbyDrivers: { marginTop: 12, padding: 11, borderRadius: 11, backgroundColor: '#F4F7FA', gap: 8 },

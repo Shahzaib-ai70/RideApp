@@ -947,43 +947,66 @@ export default function DriverScreen() {
     </ScrollView>
     {isOnline && !activeRide && topRequest ? (
       <View pointerEvents="box-none" style={styles.requestPopupLayer}>
+        <View style={styles.requestPopupScrim} />
         <View accessibilityLiveRegion="polite" style={styles.requestPopup}>
           <View style={styles.requestPopupHeading}>
             <View style={styles.requestPopupIcon}>
               <Ionicons
                 name={topRequest.vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
-                size={19}
-                color={COLORS.green}
+                size={20}
+                color={COLORS.ink}
               />
             </View>
             <View style={styles.requestPopupTitleCopy}>
-              <Text style={styles.requestPopupEyebrow}>NEW RIDE REQUEST</Text>
+              <Text style={styles.requestPopupEyebrow}>RIDE REQUEST</Text>
               <Text numberOfLines={1} style={styles.requestPopupRider}>
-                {topRequest.rider_name || 'Sawaari rider'} · {topRequest.vehicle}
+                {topRequest.rider_name || 'Sawaari rider'}
               </Text>
+              <Text style={styles.requestPopupVehicle}>{topRequest.vehicle} · Pickup {topRequest.distance_m < 1000
+                ? `${Math.round(topRequest.distance_m)} m away`
+                : `${(topRequest.distance_m / 1000).toFixed(1)} km away`}</Text>
             </View>
-            <Text style={styles.requestPopupDistance}>{(topRequest.distance_m / 1000).toFixed(1)} km</Text>
+            <View style={styles.newRequestBadge}>
+              <View style={styles.newRequestDot} />
+              <Text style={styles.newRequestText}>NEW</Text>
+            </View>
           </View>
           <View style={styles.requestPopupFareRow}>
             <View>
-              <Text style={styles.requestMetaLabel}>RIDER OFFER</Text>
+              <Text style={styles.requestMetaLabel}>RIDER&apos;S FARE</Text>
               <Text style={styles.requestPopupFare}>{formatPkr(topRequest.offered_fare)}</Text>
             </View>
-            <Text style={styles.requestPopupTime}>
-              {new Date(topRequest.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-            </Text>
+            <View style={styles.requestPopupTimeBadge}>
+              <Ionicons name="time-outline" size={13} color={COLORS.muted} />
+              <Text style={styles.requestPopupTime}>
+                {new Date(topRequest.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+              </Text>
+            </View>
           </View>
-          <Text numberOfLines={2} style={styles.requestPopupRoute}>
-            <Text style={styles.requestPopupRouteLabel}>Pickup · </Text>{topRequest.pickup_address}
-          </Text>
-          <Text numberOfLines={2} style={styles.requestPopupRoute}>
-            <Text style={styles.requestPopupRouteLabel}>Drop-off · </Text>{topRequest.destination_address}
-          </Text>
+          <View style={styles.requestPopupRouteBlock}>
+            <View style={styles.requestPopupRouteRail}>
+              <View style={styles.requestPopupRouteStart} />
+              <View style={styles.requestPopupRouteDash} />
+              <View style={styles.requestPopupRouteEnd} />
+            </View>
+            <View style={styles.requestPopupRouteCopy}>
+              <View>
+                <Text style={styles.requestPopupRouteLabel}>PICKUP</Text>
+                <Text numberOfLines={1} style={styles.requestPopupRoute}>{topRequest.pickup_address}</Text>
+              </View>
+              <View style={styles.requestPopupRouteDivider} />
+              <View>
+                <Text style={styles.requestPopupRouteLabel}>DESTINATION</Text>
+                <Text numberOfLines={1} style={styles.requestPopupRoute}>{topRequest.destination_address}</Text>
+              </View>
+            </View>
+          </View>
           {topRequest.my_offer_status === 'pending' ? (
             <Text style={styles.offerStatus}>Your counter-offer is waiting for the rider. You can change it below.</Text>
           ) : topRequest.my_offer_status === 'rejected' ? (
             <Text style={styles.offerRejected}>Rider declined your last offer. Change the price and resend it.</Text>
           ) : null}
+          <Text style={styles.requestPopupCounterLabel}>YOUR COUNTER-OFFER <Text style={styles.optionalLabel}>· OPTIONAL</Text></Text>
           <View style={styles.driverOfferInputWrap}>
             <Text style={styles.driverOfferCurrency}>PKR</Text>
             <TextInput
@@ -996,7 +1019,7 @@ export default function DriverScreen() {
               }))}
               keyboardType="number-pad"
               maxLength={7}
-              placeholder="Your fare"
+              placeholder="Enter your fare"
               style={styles.driverOfferInput}
             />
             <Pressable
@@ -1008,7 +1031,7 @@ export default function DriverScreen() {
               {sendingOfferId === topRequest.request_id
                 ? <ActivityIndicator size="small" color={COLORS.green} />
                 : <Text style={styles.counterOfferText}>
-                  {topRequest.my_offer_status === 'pending' ? 'Update offer' : 'Counter'}
+                  {topRequest.my_offer_status === 'pending' ? 'Update' : 'Send offer'}
                 </Text>}
             </Pressable>
           </View>
@@ -1017,8 +1040,12 @@ export default function DriverScreen() {
               accessibilityRole="button"
               disabled={sendingOfferId === topRequest.request_id}
               onPress={() => void respondToRideRequest(topRequest, 'reject')}
-              style={[styles.rejectRequestButton, sendingOfferId === topRequest.request_id && styles.disabledRequestAction]}
+              style={({ pressed }) => [
+                styles.rejectRequestButton,
+                (pressed || sendingOfferId === topRequest.request_id) && styles.disabledRequestAction,
+              ]}
             >
+              <Ionicons name="close-circle-outline" size={17} color={COLORS.red} />
               <Text style={styles.rejectRequestText}>Reject</Text>
             </Pressable>
             {topRequest.my_offer_status === 'pending' ? (
@@ -1030,11 +1057,19 @@ export default function DriverScreen() {
                 accessibilityRole="button"
                 disabled={sendingOfferId === topRequest.request_id}
                 onPress={() => void respondToRideRequest(topRequest, 'accept')}
-                style={[styles.acceptRequestButton, sendingOfferId === topRequest.request_id && styles.disabledRequestAction]}
+                style={({ pressed }) => [
+                  styles.acceptRequestButton,
+                  (pressed || sendingOfferId === topRequest.request_id) && styles.disabledRequestAction,
+                ]}
               >
                 {sendingOfferId === topRequest.request_id
                   ? <ActivityIndicator size="small" color={COLORS.white} />
-                  : <Text style={styles.acceptRequestText}>Accept fare</Text>}
+                  : (
+                    <>
+                      <Ionicons name="checkmark-circle-outline" size={17} color={COLORS.white} />
+                      <Text style={styles.acceptRequestText}>Accept fare</Text>
+                    </>
+                  )}
               </Pressable>
             )}
           </View>
@@ -1055,43 +1090,75 @@ const styles = StyleSheet.create({
   screen: { padding: 18, paddingBottom: 36, gap: 14, backgroundColor: COLORS.paper, flexGrow: 1 },
   requestPopupLayer: {
     position: 'absolute',
-    top: 8,
-    left: 0,
+    top: 0,
     right: 0,
+    bottom: 0,
+    left: 0,
     zIndex: 30,
     elevation: 18,
     alignItems: 'center',
     paddingHorizontal: 10,
   },
+  requestPopupScrim: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(17, 40, 58, 0.18)',
+  },
   requestPopup: {
     width: '100%',
     maxWidth: 520,
-    padding: 14,
-    borderRadius: 19,
+    marginTop: 10,
+    padding: 15,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#B9DED2',
+    borderColor: '#D5E4E0',
     backgroundColor: COLORS.white,
-    gap: 9,
-    shadowColor: '#12273A',
-    shadowOpacity: 0.22,
-    shadowRadius: 15,
-    shadowOffset: { width: 0, height: 7 },
+    gap: 11,
+    shadowColor: '#10283A',
+    shadowOpacity: 0.24,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
   },
-  requestPopupHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  requestPopupIcon: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.lime },
+  requestPopupHeading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: COLORS.line },
+  requestPopupIcon: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.lime },
   requestPopupTitleCopy: { flex: 1, minWidth: 0 },
-  requestPopupEyebrow: { color: COLORS.green, fontSize: 9, fontWeight: '900', letterSpacing: 0.9 },
-  requestPopupRider: { marginTop: 3, color: COLORS.ink, fontSize: 12, fontWeight: '800' },
-  requestPopupDistance: { color: COLORS.muted, fontSize: 10, fontWeight: '800' },
-  requestPopupFareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 1, borderTopColor: COLORS.line },
-  requestPopupFare: { color: COLORS.green, fontSize: 20, fontWeight: '900' },
-  requestPopupTime: { color: COLORS.muted, fontSize: 10, fontWeight: '700' },
-  requestPopupRoute: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
-  requestPopupRouteLabel: { color: COLORS.ink, fontWeight: '800' },
-  requestPopupActions: { flexDirection: 'row', gap: 9 },
-  acceptRequestButton: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center' },
+  requestPopupEyebrow: { color: COLORS.green, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  requestPopupRider: { marginTop: 3, color: COLORS.ink, fontSize: 14, fontWeight: '900' },
+  requestPopupVehicle: { marginTop: 2, color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+  newRequestBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 20, backgroundColor: '#E8F4EE' },
+  newRequestDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.green },
+  newRequestText: { color: COLORS.green, fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
+  requestPopupFareRow: {
+    minHeight: 67,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    borderRadius: 13,
+    backgroundColor: '#F4F8F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  requestPopupFare: { marginTop: 2, color: COLORS.green, fontSize: 23, fontWeight: '900', letterSpacing: -0.5 },
+  requestPopupTimeBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: COLORS.white },
+  requestPopupTime: { color: COLORS.muted, fontSize: 9, fontWeight: '700' },
+  requestPopupRouteBlock: { flexDirection: 'row', gap: 10, paddingHorizontal: 3 },
+  requestPopupRouteRail: { width: 10, alignItems: 'center', paddingVertical: 4 },
+  requestPopupRouteStart: { width: 7, height: 7, borderRadius: 4, borderWidth: 2, borderColor: COLORS.green },
+  requestPopupRouteDash: { width: 1, flex: 1, minHeight: 8, backgroundColor: '#B8C7B7' },
+  requestPopupRouteEnd: { width: 7, height: 7, backgroundColor: COLORS.orange },
+  requestPopupRouteCopy: { flex: 1, gap: 8 },
+  requestPopupRoute: { marginTop: 2, color: COLORS.ink, fontSize: 10, lineHeight: 15, fontWeight: '700' },
+  requestPopupRouteLabel: { color: COLORS.muted, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
+  requestPopupRouteDivider: { height: 1, backgroundColor: COLORS.line },
+  requestPopupCounterLabel: { color: COLORS.ink, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
+  optionalLabel: { color: COLORS.muted, fontWeight: '600' },
+  requestPopupActions: { flexDirection: 'row', gap: 10, paddingTop: 1 },
+  acceptRequestButton: { flex: 1.3, minHeight: 46, borderRadius: 12, backgroundColor: COLORS.green, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', elevation: 2 },
   acceptRequestText: { color: COLORS.white, fontSize: 11, fontWeight: '900' },
-  rejectRequestButton: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: '#FBE9E8', alignItems: 'center', justifyContent: 'center' },
+  rejectRequestButton: { flex: 1, minHeight: 46, borderRadius: 12, borderWidth: 1, borderColor: '#F0D8D6', backgroundColor: '#FFF8F7', flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' },
   rejectRequestText: { color: COLORS.red, fontSize: 11, fontWeight: '900' },
   waitingRequestButton: { backgroundColor: '#E8EFED' },
   waitingRequestText: { color: COLORS.muted, fontSize: 10, fontWeight: '800' },
