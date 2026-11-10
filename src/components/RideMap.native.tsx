@@ -1,6 +1,7 @@
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useRef } from 'react';
 import type { RideMapProps } from './ride-map.types';
 
 const GREEN = '#0B786F';
@@ -11,11 +12,25 @@ export default function RideMap({
   region,
   pickup,
   destination,
+  nearbyDrivers = [],
+  acceptedDriverLocation,
   locationGranted,
   onRegionChange,
 }: RideMapProps) {
+  const map = useRef<MapView>(null);
+
+  useEffect(() => {
+    if (!acceptedDriverLocation) return;
+    map.current?.animateToRegion({
+      ...acceptedDriverLocation,
+      latitudeDelta: 0.02,
+      longitudeDelta: 0.02,
+    }, 500);
+  }, [acceptedDriverLocation]);
+
   return (
     <MapView
+      ref={map}
       style={StyleSheet.absoluteFill}
       provider={PROVIDER_GOOGLE}
       region={region}
@@ -39,6 +54,28 @@ export default function RideMap({
           </View>
         </Marker>
       )}
+      {nearbyDrivers.map((driver) => (
+        <Marker
+          key={driver.driver_id}
+          coordinate={{ latitude: driver.latitude, longitude: driver.longitude }}
+          title={`Nearby ${driver.vehicle}`}
+        >
+          <View style={styles.nearbyMarker}>
+            <Ionicons name="car" size={13} color={WHITE} />
+          </View>
+        </Marker>
+      ))}
+      {acceptedDriverLocation ? (
+        <Marker
+          coordinate={acceptedDriverLocation}
+          title="Your driver"
+          description="Live driver location"
+        >
+          <View style={styles.liveDriverMarker}>
+            <Ionicons name="car" size={17} color={WHITE} />
+          </View>
+        </Marker>
+      ) : null}
     </MapView>
   );
 }
@@ -66,5 +103,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: ORANGE,
     elevation: 4,
+  },
+  nearbyMarker: {
+    width: 25,
+    height: 25,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: WHITE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#537A8A',
+    elevation: 3,
+  },
+  liveDriverMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 3,
+    borderColor: WHITE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0B786F',
+    elevation: 6,
   },
 });

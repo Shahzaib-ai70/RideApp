@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { Text, TextInput } from './AppText';
 import RideMap from './RideMap';
-import type { MapPoint } from './ride-map.types';
+import type { MapPoint, NearbyMapDriver } from './ride-map.types';
 import { loadGoogleMaps } from './google-maps';
 import { useInAppNotice } from './InAppNoticeProvider';
 import AccountPanel from './AccountPanel';
@@ -53,7 +53,7 @@ type Ride = {
   offer: number;
   cloud?: boolean;
 };
-type NearbyDriver = {
+type NearbyDriver = NearbyMapDriver & {
   driver_id: string;
   driver_name: string;
   vehicle: Vehicle;
@@ -64,6 +64,8 @@ type RideServerStatus = {
   status: string;
   driver_name: string;
   driver_vehicle: string;
+  driver_location_updated_at: string | null;
+  driver_location: Coordinate | null;
 };
 
 const STORAGE_KEY = '@sawaari/rides';
@@ -245,6 +247,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [routeError, setRouteError] = useState('');
   const [nearbyDrivers, setNearbyDrivers] = useState<Record<string, NearbyDriver[]>>({});
   const [rideStatuses, setRideStatuses] = useState<Record<string, RideServerStatus>>({});
+  const [tripMapRegions, setTripMapRegions] = useState<Record<string, MapViewport>>({});
   const [matchingError, setMatchingError] = useState('');
   const showMessage = useCallback((title: string, message: string) => {
     notify({ title, message });
@@ -302,7 +305,12 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               return typeof driver.driver_id === 'string'
                 && typeof driver.driver_name === 'string'
                 && VEHICLES.some((item) => item === driver.vehicle)
+                && typeof driver.latitude === 'number'
+                && Number.isFinite(driver.latitude)
+                && typeof driver.longitude === 'number'
+                && Number.isFinite(driver.longitude)
                 && typeof driver.distance_m === 'number'
+                && Number.isFinite(driver.distance_m)
                 && typeof driver.updated_at === 'string';
             });
           }
@@ -311,10 +319,19 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             if (typeof status.status === 'string'
               && typeof status.driver_name === 'string'
               && typeof status.driver_vehicle === 'string') {
+              const locationCandidate = {
+                latitude: status.driver_latitude,
+                longitude: status.driver_longitude,
+              };
+              const location = isCoordinate(locationCandidate) ? locationCandidate : null;
               statusResults[ride.id] = {
                 status: status.status,
                 driver_name: status.driver_name,
                 driver_vehicle: status.driver_vehicle,
+                driver_location_updated_at: typeof status.driver_location_updated_at === 'string'
+                  ? status.driver_location_updated_at
+                  : null,
+                driver_location: location,
               };
             }
           }
@@ -773,7 +790,13 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       }
       setRideStatuses((current) => ({
         ...current,
-        [ride.id]: { status: 'cancelled', driver_name: '', driver_vehicle: '' },
+        [ride.id]: {
+          status: 'cancelled',
+          driver_name: '',
+          driver_vehicle: '',
+          driver_location_updated_at: null,
+          driver_location: null,
+        },
       }));
       setNearbyDrivers((current) => ({ ...current, [ride.id]: [] }));
     };
@@ -1333,14 +1356,49 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   </Text>
                 </View>
               </View>
+              {ride.cloud && !['completed', 'cancelled'].includes(rideStatuses[ride.id]?.status ?? '') ? (
+                <View style={styles.tripMapFrame}>
+                  <RideMap
+                    region={tripMapRegions[ride.id] ?? {
+                      latitude: (ride.pickup.latitude + ride.destination.latitude) / 2,
+                      longitude: (ride.pickup.longitude + ride.destination.longitude) / 2,
+                      latitudeDelta: Math.max(
+                        0.02,
+                        Math.abs(ride.pickup.latitude - ride.destination.latitude) * 1.8,
+                      ),
+                      longitudeDelta: Math.max(
+                        0.02,
+                        Math.abs(ride.pickup.longitude - ride.destination.longitude) * 1.8,
+                      ),
+                    }}
+                    pickup={ride.pickup}
+                    destination={ride.destination}
+                    nearbyDrivers={rideStatuses[ride.id]?.status === 'accepted'
+                      ? []
+                      : nearbyDrivers[ride.id] ?? []}
+                    acceptedDriverLocation={rideStatuses[ride.id]?.driver_location}
+                    locationGranted={false}
+                    onRegionChange={(nextRegion) => {
+                      setTripMapRegions((current) => ({ ...current, [ride.id]: nextRegion }));
+                    }}
+                  />
+                </View>
+              ) : null}
               {ride.cloud && rideStatuses[ride.id]?.status === 'accepted' ? (
-                <View style={styles.matchNotice}>
-                  <Ionicons name="checkmark-circle" size={18} color={COLORS.green} />
-                  <Text style={styles.matchText}>
-                    Accepted by {rideStatuses[ride.id].driver_name || 'a nearby driver'}
-                    {rideStatuses[ride.id].driver_vehicle
-                      ? ` · ${rideStatuses[ride.id].driver_vehicle}`
-                      : ''}
+                <View>
+                  <View style={styles.matchNotice}>
+                    <Ionicons name="checkmark-circle" size={18} color={COLORS.green} />
+                    <Text style={styles.matchText}>
+                      Accepted by {rideStatuses[ride.id].driver_name || 'a nearby driver'}
+                      {rideStatuses[ride.id].driver_vehicle
+                        ? ` · ${rideStatuses[ride.id].driver_vehicle}`
+                        : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.liveLocationNote}>
+                    {rideStatuses[ride.id].driver_location
+                      ? 'Live driver location · updates while the driver app is open and location is enabled.'
+                      : 'Waiting for a fresh driver location. Updates require the driver app to stay open with location enabled.'}
                   </Text>
                 </View>
               ) : ride.cloud && rideStatuses[ride.id]?.status === 'completed' ? (
@@ -2053,6 +2111,15 @@ const styles = StyleSheet.create({
   liveBadge: { backgroundColor: '#EAF1F7' },
   liveBadgeText: { color: COLORS.green },
   tripRoute: { marginTop: 13, flexDirection: 'row' },
+  tripMapFrame: {
+    height: 190,
+    marginTop: 13,
+    overflow: 'hidden',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: '#DCE9E5',
+  },
   tripDots: { width: 18, alignItems: 'center', paddingTop: 3, paddingBottom: 4 },
   routeCircleSmall: { width: 8, height: 8, borderRadius: 5, borderWidth: 2, borderColor: COLORS.green },
   tripConnector: { width: 1, flex: 1, minHeight: 20, marginVertical: 3, borderWidth: 0.7, borderStyle: 'dashed', borderColor: '#A8B6C2' },
@@ -2070,6 +2137,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   matchText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
+  liveLocationNote: { marginTop: 6, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
   nearbyDrivers: { marginTop: 12, padding: 11, borderRadius: 11, backgroundColor: '#F4F7FA', gap: 8 },
   nearbyHeading: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
   nearbyDriver: { flexDirection: 'row', alignItems: 'center', gap: 7 },

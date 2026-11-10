@@ -402,6 +402,8 @@ async function getNearbyDrivers(userId, rideId) {
   const sqlDistance = distanceSql('dp.latitude', 'dp.longitude');
   const result = await pool.query(
     `select dp.user_id as driver_id, u.display_name as driver_name, dp.vehicle,
+            round(dp.latitude::numeric, 2)::double precision as latitude,
+            round(dp.longitude::numeric, 2)::double precision as longitude,
             ${sqlDistance} as distance_m, dp.updated_at
      from driver_presence dp
      join app_users u on u.id = dp.user_id
@@ -893,6 +895,27 @@ async function route(request, response, url) {
     return;
   }
 
+  if (method === 'POST' && pathname === '/api/driver/location') {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    const latitude = Number(body.latitude);
+    const longitude = Number(body.longitude);
+    if (!isUuid(body.request_id) || !validCoordinates(latitude, longitude)) {
+      throw fail('Provide a valid active ride and driver location.');
+    }
+    const result = await pool.query(
+      `update driver_presence as dp
+       set latitude = $3, longitude = $4, is_online = false, updated_at = now()
+       from ride_requests as r
+       where dp.user_id = $1 and r.id = $2 and r.driver_id = $1 and r.status = 'accepted'
+       returning dp.user_id`,
+      [user.id, body.request_id, latitude, longitude],
+    );
+    if (!result.rowCount) throw fail('This active ride is no longer available for location sharing.', 404);
+    sendJson(response, 200, { success: true });
+    return;
+  }
+
   if (method === 'GET' && pathname === '/api/driver/requests') {
     const user = await requireUser(request);
     const presence = await pool.query(
@@ -1025,7 +1048,13 @@ async function route(request, response, url) {
     const rideId = rideStatusMatch[1];
     const rideResult = await pool.query(
       `select r.status, coalesce(driver.display_name, '') as driver_name,
-              coalesce(presence.vehicle, '') as driver_vehicle
+              coalesce(presence.vehicle, '') as driver_vehicle,
+              case when r.status='accepted' and presence.updated_at > now() - interval '60 seconds'
+                then presence.latitude else null end as driver_latitude,
+              case when r.status='accepted' and presence.updated_at > now() - interval '60 seconds'
+                then presence.longitude else null end as driver_longitude,
+              case when r.status='accepted' and presence.updated_at > now() - interval '60 seconds'
+                then presence.updated_at else null end as driver_location_updated_at
        from ride_requests r left join app_users driver on driver.id=r.driver_id
        left join driver_presence presence on presence.user_id=r.driver_id
        where r.id=$1 and r.rider_id=$2`,

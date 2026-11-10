@@ -178,6 +178,7 @@ export default function DriverScreen() {
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [lastPoint, setLastPoint] = useState<MapPoint | null>(null);
   const watch = useRef<Location.LocationSubscription | null>(null);
+  const activeRideWatch = useRef<Location.LocationSubscription | null>(null);
   const mounted = useRef(true);
   const applicationLoadVersion = useRef(0);
   const showMessage = useCallback((title: string, message: string) => {
@@ -242,6 +243,8 @@ export default function DriverScreen() {
       mounted.current = false;
       watch.current?.remove();
       watch.current = null;
+      activeRideWatch.current?.remove();
+      activeRideWatch.current = null;
     };
   }, []);
 
@@ -305,6 +308,84 @@ export default function DriverScreen() {
       active = false;
     };
   }, [session]);
+
+  useEffect(() => {
+    if (!session || !activeRide) return undefined;
+    let active = true;
+    let subscription: Location.LocationSubscription | null = null;
+
+    const sendLocation = async (point: MapPoint) => {
+      await apiRequest('/driver/location', {
+        method: 'POST',
+        body: JSON.stringify({
+          request_id: activeRide.request_id,
+          latitude: point.latitude,
+          longitude: point.longitude,
+        }),
+      });
+    };
+
+    const startTracking = async () => {
+      try {
+        let permission = await Location.getForegroundPermissionsAsync();
+        if (!permission.granted) {
+          permission = await Location.requestForegroundPermissionsAsync();
+        }
+        if (!permission.granted) {
+          throw new Error('Allow location access to share your live position with the rider.');
+        }
+
+        const current = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const point = {
+          latitude: current.coords.latitude,
+          longitude: current.coords.longitude,
+        };
+        if (!active) return;
+        await sendLocation(point);
+        if (!active) return;
+        setLastPoint(point);
+
+        subscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 10000,
+            distanceInterval: 20,
+          },
+          (position) => {
+            const nextPoint = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            };
+            setLastPoint(nextPoint);
+            void sendLocation(nextPoint).catch((error: unknown) => {
+              if (active) {
+                setRequestError(error instanceof Error
+                  ? `Live location update failed: ${error.message}`
+                  : 'Live location update failed.');
+              }
+            });
+          },
+        );
+        if (active) activeRideWatch.current = subscription;
+        else subscription.remove();
+      } catch (error: unknown) {
+        if (active) {
+          setRequestError(error instanceof Error
+            ? `Live location is unavailable: ${error.message}`
+            : 'Live location is unavailable.');
+        }
+      }
+    };
+
+    void startTracking();
+    return () => {
+      active = false;
+      subscription?.remove();
+      if (activeRideWatch.current === subscription) activeRideWatch.current = null;
+    };
+  }, [activeRide, session]);
 
   useEffect(() => {
     if (!session || application?.status !== 'pending') return undefined;
@@ -638,6 +719,9 @@ export default function DriverScreen() {
           <Text style={styles.paymentHint}>
             Payment: cash · Confirm only after the rider has paid the agreed fare.
           </Text>
+          <Text style={styles.locationSharingNote}>
+            Live location is shared with this rider while the app is open and location is enabled.
+          </Text>
           <Pressable disabled={busy} onPress={() => void completeRide()} style={styles.acceptButton}>
             {busy ? <ActivityIndicator color={COLORS.green} /> : (
               <Text style={styles.acceptText}>Confirm cash received & complete ride</Text>
@@ -868,6 +952,7 @@ const styles = StyleSheet.create({
   emptyCopy: { marginTop: 4, color: COLORS.muted, fontSize: 11, textAlign: 'center' },
   requestCard: { padding: 17, borderRadius: 21, borderWidth: 1, borderColor: '#E6EFEC', backgroundColor: COLORS.white, gap: 9, elevation: 4, shadowColor: '#173A4B', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   paymentHint: { color: COLORS.orange, fontSize: 10, lineHeight: 15, fontWeight: '700' },
+  locationSharingNote: { color: COLORS.green, fontSize: 10, lineHeight: 15, fontWeight: '600' },
   requestTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   requestFare: { color: COLORS.green, fontSize: 18, fontWeight: '800' },
   activeLabel: { color: COLORS.green, fontSize: 10, fontWeight: '800', letterSpacing: 1.1 },
