@@ -201,7 +201,10 @@ export default function DriverScreen() {
       setDashboard(result);
       setDisplayName(result.profile.display_name);
     } catch (error: unknown) {
-      setDashboardError(error instanceof Error ? error.message : 'Could not load driver account details.');
+      const message = error instanceof Error ? error.message : 'Could not load driver account details.';
+      setDashboardError(message === 'Not found.'
+        ? 'The API serving this site is missing the driver dashboard route. Update the VPS API from the latest GitHub main branch and restart sawaari-api.'
+        : message);
     } finally {
       setDashboardLoading(false);
     }
@@ -498,7 +501,7 @@ export default function DriverScreen() {
       setRequests((current) => current.filter((item) => item.request_id !== request.request_id));
       showMessage(
         'Ride accepted',
-        'The rider has been notified. Contact and trip safety tools still need to be configured before real-world use.',
+        'This MVP does not provide in-app calling, emergency/SOS support, or trip sharing. Do not use it for real passenger trips until those safety features are implemented.',
       );
     } catch (error: unknown) {
       showMessage(
@@ -626,6 +629,13 @@ export default function DriverScreen() {
           <View style={[styles.driverLiveDot, isOnline && styles.driverLiveDotOn]} />
           <Text style={styles.driverLiveText}>{isOnline ? 'You’re visible to nearby riders' : 'You’re currently offline'}</Text>
         </View>
+      </View>
+      <View style={styles.notice}>
+        <Ionicons name="warning-outline" size={18} color={COLORS.orange} />
+        <Text style={styles.noticeText}>
+          Safety features are not operational yet: in-app emergency/SOS, calls, and trip sharing are unavailable.
+          Do not use Sawaari for real passenger trips until these protections are added.
+        </Text>
       </View>
       {dashboardLoading ? <ActivityIndicator color={COLORS.green} /> : null}
       {dashboardError ? (

@@ -1,4 +1,6 @@
+import { StyleSheet, View } from 'react-native';
 import DriverScreen from '../components/DriverScreen';
+import DriverBottomNavigation from '../components/DriverBottomNavigation';
 import { pageMetadata } from '../lib/seo';
 import type { Metadata } from 'expo-router/server';
 
@@ -12,5 +14,17 @@ export function generateMetadata(): Metadata {
 }
 
 export default function DriverRoute() {
-  return <DriverScreen />;
+  return (
+    <View style={styles.screen}>
+      <View style={styles.content}>
+        <DriverScreen />
+      </View>
+      <DriverBottomNavigation />
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  content: { flex: 1, minHeight: 0 },
+});

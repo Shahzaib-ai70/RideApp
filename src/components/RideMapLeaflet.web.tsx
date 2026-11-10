@@ -27,10 +27,17 @@ function pinIcon(kind: 'pickup' | 'destination') {
   });
 }
 
-function driverIcon(accepted: boolean) {
+function driverGlyph(vehicle: string) {
+  if (vehicle === 'Bike') return '🏍️';
+  if (vehicle === 'Rickshaw') return '🛺';
+  if (vehicle === 'Premium') return '🚙';
+  return '🚗';
+}
+
+function driverIcon(accepted: boolean, vehicle: string) {
   return divIcon({
     className: 'sawaari-marker-shell',
-    html: `<span class="sawaari-marker-driver${accepted ? ' sawaari-marker-driver-accepted' : ''}">●</span>`,
+    html: `<span class="sawaari-marker-driver${accepted ? ' sawaari-marker-driver-accepted' : ''}">${driverGlyph(vehicle)}</span>`,
     iconSize: accepted ? [35, 35] : [27, 27],
     iconAnchor: accepted ? [17, 17] : [13, 13],
   });
@@ -236,14 +243,14 @@ function OpenStreetMapRideMap(props: RideMapProps) {
         <Marker
           key={driver.driver_id}
           position={[driver.latitude, driver.longitude]}
-          icon={driverIcon(false)}
+          icon={driverIcon(false, driver.vehicle)}
           title={`Nearby ${driver.vehicle}`}
         />
       ))}
       {acceptedDriverLocation ? (
         <Marker
           position={[acceptedDriverLocation.latitude, acceptedDriverLocation.longitude]}
-          icon={driverIcon(true)}
+          icon={driverIcon(true, props.acceptedDriverVehicle ?? '')}
           title="Your driver"
         />
       ) : null}
@@ -262,6 +269,7 @@ function GoogleRideMap({
   destination,
   nearbyDrivers = [],
   acceptedDriverLocation,
+  acceptedDriverVehicle,
   onRegionChange,
   onRouteDistanceChange,
 }: RideMapProps) {
@@ -404,12 +412,13 @@ function GoogleRideMap({
         title: `Nearby ${driver.vehicle}`,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          scale: 7,
-          fillColor: '#537A8A',
+          scale: 13,
+          fillColor: '#FFFFFF',
           fillOpacity: 1,
-          strokeColor: '#FFFFFF',
-          strokeWeight: 2,
+          strokeColor: '#537A8A',
+          strokeWeight: 3,
         },
+        label: { text: driverGlyph(driver.vehicle), fontSize: '17px' },
       }));
     });
     if (acceptedDriverLocation) {
@@ -422,15 +431,19 @@ function GoogleRideMap({
         title: 'Your driver',
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          scale: 11,
-          fillColor: '#0B786F',
+          scale: 17,
+          fillColor: '#FFFFFF',
           fillOpacity: 1,
-          strokeColor: '#FFFFFF',
-          strokeWeight: 3,
+          strokeColor: '#0B786F',
+          strokeWeight: 4,
+        },
+        label: {
+          text: driverGlyph(acceptedDriverVehicle ?? ''),
+          fontSize: '21px',
         },
       }));
     }
-  }, [pickup, destination, mapReady, nearbyDrivers, acceptedDriverLocation]);
+  }, [pickup, destination, mapReady, nearbyDrivers, acceptedDriverLocation, acceptedDriverVehicle]);
 
   useEffect(() => {
     const currentMap = map.current;

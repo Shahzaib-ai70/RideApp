@@ -14,6 +14,7 @@ export default function RideMap({
   destination,
   nearbyDrivers = [],
   acceptedDriverLocation,
+  acceptedDriverVehicle,
   locationGranted,
   onRegionChange,
 }: RideMapProps) {
@@ -61,7 +62,7 @@ export default function RideMap({
           title={`Nearby ${driver.vehicle}`}
         >
           <View style={styles.nearbyMarker}>
-            <Ionicons name="car" size={13} color={WHITE} />
+            <Ionicons name={vehicleIcon(driver.vehicle)} size={15} color={WHITE} />
           </View>
         </Marker>
       ))}
@@ -72,12 +73,18 @@ export default function RideMap({
           description="Live driver location"
         >
           <View style={styles.liveDriverMarker}>
-            <Ionicons name="car" size={17} color={WHITE} />
+            <Ionicons name={vehicleIcon(acceptedDriverVehicle ?? '')} size={19} color={WHITE} />
           </View>
         </Marker>
       ) : null}
     </MapView>
   );
+}
+
+function vehicleIcon(vehicle: string): keyof typeof Ionicons.glyphMap {
+  if (vehicle === 'Bike') return 'bicycle';
+  if (vehicle === 'Rickshaw') return 'car-outline';
+  return 'car-sport';
 }
 
 const styles = StyleSheet.create({

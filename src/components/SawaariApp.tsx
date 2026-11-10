@@ -1377,6 +1377,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                       ? []
                       : nearbyDrivers[ride.id] ?? []}
                     acceptedDriverLocation={rideStatuses[ride.id]?.driver_location}
+                    acceptedDriverVehicle={rideStatuses[ride.id]?.driver_vehicle}
                     locationGranted={false}
                     onRegionChange={(nextRegion) => {
                       setTripMapRegions((current) => ({ ...current, [ride.id]: nextRegion }));

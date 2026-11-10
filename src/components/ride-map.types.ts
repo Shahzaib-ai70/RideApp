@@ -17,4 +17,5 @@ export type RideMapProps = {
   onRouteDistanceChange?: (distanceKm: number | null, error?: string) => void;
   nearbyDrivers?: NearbyMapDriver[];
   acceptedDriverLocation?: MapPoint | null;
+  acceptedDriverVehicle?: string | null;
 };
