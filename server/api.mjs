@@ -1068,6 +1068,24 @@ async function route(request, response, url) {
   }
 
   const rideCancelMatch = pathname.match(/^\/api\/rides\/([0-9a-f-]{36})\/cancel$/i);
+  const rideOfferMatch = pathname.match(/^\/api\/rides\/([0-9a-f-]{36})\/offer$/i);
+  if (method === 'POST' && rideOfferMatch) {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    const offeredFare = Number(body.offered_fare);
+    if (!Number.isInteger(offeredFare) || offeredFare < 1 || offeredFare > 1000000) {
+      throw fail('Enter a fare offer between PKR 1 and PKR 1,000,000.');
+    }
+    const result = await pool.query(
+      `update ride_requests set offered_fare=$3, updated_at=now()
+       where id=$1 and rider_id=$2 and status='searching' returning id`,
+      [rideOfferMatch[1], user.id, offeredFare],
+    );
+    if (!result.rowCount) throw fail('This ride offer can no longer be changed.', 409);
+    sendJson(response, 200, { success: true, offered_fare: offeredFare });
+    return;
+  }
+
   if (method === 'POST' && rideCancelMatch) {
     const user = await requireUser(request);
     const result = await pool.query(

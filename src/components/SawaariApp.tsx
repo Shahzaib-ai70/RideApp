@@ -236,6 +236,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [offer, setOffer] = useState('');
   const [customOffer, setCustomOffer] = useState(false);
   const [rides, setRides] = useState<Ride[]>([]);
+  const [activeRideId, setActiveRideId] = useState<string | null>(null);
+  const [updatingRideOffer, setUpdatingRideOffer] = useState(false);
   const [locationGranted, setLocationGranted] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [locationPromptVisible, setLocationPromptVisible] = useState(false);
@@ -283,10 +285,11 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   }, []);
 
   useEffect(() => {
-    if (screen !== 'Trips' || !configured || !session) return undefined;
+    if ((screen !== 'Ride' && screen !== 'Trips') || !configured || !session) return undefined;
     let active = true;
     const refreshMatches = async () => {
-      const cloudRides = rides.filter((ride) => ride.cloud);
+      const cloudRides = rides.filter((ride) => ride.cloud
+        && (screen === 'Trips' || activeRideId === null || ride.id === activeRideId));
       if (cloudRides.length === 0) return;
       const driverResults: Record<string, NearbyDriver[]> = {};
       const statusResults: Record<string, RideServerStatus> = {};
@@ -344,6 +347,26 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       setNearbyDrivers(driverResults);
       setRideStatuses(statusResults);
       setMatchingError(errors[0] ?? '');
+      if (screen === 'Ride' && activeRideId === null) {
+        const resumableRide = rides.find((ride) => ride.cloud
+          && ['searching', 'accepted'].includes(statusResults[ride.id]?.status ?? ''));
+        if (resumableRide) {
+          setActiveRideId(resumableRide.id);
+          setOffer(String(resumableRide.offer));
+          setRegion({
+            latitude: (resumableRide.pickup.latitude + resumableRide.destination.latitude) / 2,
+            longitude: (resumableRide.pickup.longitude + resumableRide.destination.longitude) / 2,
+            latitudeDelta: Math.max(
+              0.02,
+              Math.abs(resumableRide.pickup.latitude - resumableRide.destination.latitude) * 1.8,
+            ),
+            longitudeDelta: Math.max(
+              0.02,
+              Math.abs(resumableRide.pickup.longitude - resumableRide.destination.longitude) * 1.8,
+            ),
+          });
+        }
+      }
     };
 
     void refreshMatches();
@@ -352,7 +375,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       active = false;
       clearInterval(timer);
     };
-  }, [configured, rides, screen, session]);
+  }, [activeRideId, configured, rides, screen, session]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -736,9 +759,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         }
         const nextRides = [savedRide, ...rides];
         setRides(nextRides);
-        setOffer('');
-        setCustomOffer(false);
-        router.navigate('/trips');
+        setActiveRideId(savedRide.id);
         try {
           await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextRides));
           setStorageError('');
@@ -749,20 +770,20 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               ? `Ride request was sent, but trip history could not be saved on this device: ${detail}`
               : `Draft is available until the app closes, but could not be saved on this device: ${detail}`,
           );
-          showMessage(
-            savedRide.cloud ? 'Ride sent; history not saved' : 'Draft not saved permanently',
-            savedRide.cloud
-              ? 'Your request is active and visible in Trips for this session, but local trip history could not be stored.'
-              : 'Your draft is visible in Trips for this session, but local storage could not save it.',
-          );
+          if (!savedRide.cloud) {
+            showMessage(
+              'Draft not saved permanently',
+              'Your draft is visible on this device for this session, but local storage could not save it.',
+            );
+          }
           return;
         }
-        showMessage(
-          savedRide.cloud ? 'Searching nearby drivers' : 'Local draft saved',
-          savedRide.cloud
-            ? 'Your request was sent to online drivers nearby. Check Trips for available drivers.'
-            : 'This request is saved on this device only. Sign in to send a request to nearby drivers.',
-        );
+        if (!savedRide.cloud) {
+          showMessage(
+            'Local draft saved',
+            'This request is saved on this device only. Sign in to send a request to nearby drivers.',
+          );
+        }
       } catch (error: unknown) {
         const detail = error instanceof Error ? error.message : 'Please try again.';
         setStorageError(detail);
@@ -778,8 +799,67 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     if (confirmed) await saveRequest();
   };
 
+  const updateRideOffer = async (ride: Ride) => {
+    const updatedOffer = Number(offer.replace(/,/g, ''));
+    if (!Number.isInteger(updatedOffer) || updatedOffer < 1 || updatedOffer > 1000000) {
+      showMessage('Enter a valid fare', 'Offer an amount between PKR 1 and PKR 1,000,000.');
+      return;
+    }
+    if (!ride.cloud) {
+      setRides((current) => current.map((item) => item.id === ride.id
+        ? { ...item, offer: updatedOffer }
+        : item));
+      const nextRides = rides.map((item) => item.id === ride.id
+        ? { ...item, offer: updatedOffer }
+        : item);
+      try {
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextRides));
+        setStorageError('');
+      } catch (error: unknown) {
+        const detail = error instanceof Error ? error.message : 'Device storage is unavailable.';
+        setStorageError(`Your fare was updated for this session, but could not be saved on this device: ${detail}`);
+      }
+      return;
+    }
+
+    setUpdatingRideOffer(true);
+    setMatchingError('');
+    try {
+      await apiRequest(`/rides/${encodeURIComponent(ride.id)}/offer`, {
+        method: 'POST',
+        body: JSON.stringify({ offered_fare: updatedOffer }),
+      });
+      setRides((current) => current.map((item) => item.id === ride.id
+        ? { ...item, offer: updatedOffer }
+        : item));
+      try {
+        await AsyncStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify(rides.map((item) => item.id === ride.id
+            ? { ...item, offer: updatedOffer }
+            : item)),
+        );
+        setStorageError('');
+      } catch (error: unknown) {
+        const detail = error instanceof Error ? error.message : 'Device storage is unavailable.';
+        setStorageError(`Your fare was updated with nearby drivers, but could not be saved on this device: ${detail}`);
+      }
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : 'Please try again.';
+      setMatchingError(detail);
+      showMessage('Could not update fare', detail);
+    } finally {
+      setUpdatingRideOffer(false);
+    }
+  };
+
   const cancelRide = (ride: Ride) => {
     const cancel = async () => {
+      if (!ride.cloud) {
+        setActiveRideId(null);
+        showMessage('Local draft closed', 'You can edit your locations and fare to plan another ride.');
+        return;
+      }
       try {
         await apiRequest(`/rides/${encodeURIComponent(ride.id)}/cancel`, { method: 'POST' });
       } catch (error: unknown) {
@@ -799,6 +879,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         },
       }));
       setNearbyDrivers((current) => ({ ...current, [ride.id]: [] }));
+      if (activeRideId === ride.id) setActiveRideId(null);
     };
 
     void confirm({
@@ -812,12 +893,26 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     });
   };
 
+  const activeRide = rides.find((ride) => ride.id === activeRideId) ?? null;
+  const activeRideStatus = activeRide ? rideStatuses[activeRide.id]?.status ?? 'searching' : '';
+  const showActiveRide = Boolean(activeRide
+    && !['completed', 'cancelled'].includes(activeRideStatus));
+
   const renderMap = () => (
     <View style={[styles.mapFrame, wideLayout && styles.mapFrameWide]}>
       <RideMap
         region={region}
-        pickup={pickup}
-        destination={destination}
+        pickup={activeRide && showActiveRide ? activeRide.pickup : pickup}
+        destination={activeRide && showActiveRide ? activeRide.destination : destination}
+        nearbyDrivers={activeRide && showActiveRide && activeRideStatus !== 'accepted'
+          ? nearbyDrivers[activeRide.id] ?? []
+          : []}
+        acceptedDriverLocation={activeRide && showActiveRide && activeRideStatus === 'accepted'
+          ? rideStatuses[activeRide.id]?.driver_location
+          : null}
+        acceptedDriverVehicle={activeRide && showActiveRide
+          ? rideStatuses[activeRide.id]?.driver_vehicle
+          : null}
         locationGranted={locationGranted}
         onRegionChange={setRegion}
         onRouteDistanceChange={(distanceKm, error) => {
@@ -1071,6 +1166,166 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     );
   };
 
+  const renderActiveRidePanel = (ride: Ride) => {
+    const status = rideStatuses[ride.id]?.status ?? 'searching';
+    const drivers = nearbyDrivers[ride.id] ?? [];
+    const accepted = status === 'accepted';
+    const cloudRide = ride.cloud === true;
+
+    return (
+      <ScrollView
+        style={[styles.bookingScroll, wideLayout && styles.bookingScrollWide]}
+        contentContainerStyle={styles.trackingContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.trackingHeading}>
+          <View style={styles.trackingHeadingIcon}>
+            <Ionicons
+              name={accepted ? 'checkmark-circle' : 'radio-outline'}
+              size={22}
+              color={COLORS.green}
+            />
+          </View>
+          <View style={styles.trackingHeadingCopy}>
+            <Text style={styles.sheetTitle}>
+              {accepted ? 'Driver accepted' : cloudRide ? 'Finding nearby drivers' : 'Ride draft'}
+            </Text>
+            <Text style={styles.sheetSubtitle}>
+              {!cloudRide
+                ? 'This request is saved on this device only.'
+                : accepted
+                ? 'Your assigned driver is shown on the map.'
+                : `${drivers.length} nearby ${drivers.length === 1 ? 'driver' : 'drivers'} · refreshes every 10 seconds`}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.trackingRouteCard}>
+          <View style={styles.trackingRoutePoint}>
+            <View style={styles.routeCircleSmall} />
+            <View style={styles.trackingRouteCopy}>
+              <Text style={styles.trackingRouteCaption}>PICKUP</Text>
+              <Text numberOfLines={2} style={styles.trackingRouteAddress}>
+                {addressOrCoordinates(ride.pickupAddress, ride.pickup)}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.trackingRouteDivider} />
+          <View style={styles.trackingRoutePoint}>
+            <View style={styles.routeSquareSmall} />
+            <View style={styles.trackingRouteCopy}>
+              <Text style={styles.trackingRouteCaption}>DESTINATION</Text>
+              <Text numberOfLines={2} style={styles.trackingRouteAddress}>
+                {addressOrCoordinates(ride.destinationAddress, ride.destination)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.trackingFareCard}>
+          <View style={styles.trackingFareHeading}>
+            <View>
+              <Text style={styles.trackingRouteCaption}>YOUR MANUAL OFFER</Text>
+              <Text style={styles.trackingFareAmount}>PKR {ride.offer.toLocaleString()}</Text>
+            </View>
+            <View style={styles.trackingVehicle}>
+              <VehicleArt vehicle={ride.vehicle} size={38} />
+              <Text style={styles.trackingVehicleName}>{ride.vehicle}</Text>
+            </View>
+          </View>
+          {!accepted ? (
+            <>
+              <View style={styles.trackingOfferRow}>
+                <Text style={styles.trackingOfferLabel}>Change your offer</Text>
+                <View style={styles.trackingOfferInputWrap}>
+                  <Text style={styles.currencyMark}>Rs</Text>
+                  <TextInput
+                    accessibilityLabel="Update your manual fare offer in Pakistani rupees"
+                    style={styles.trackingOfferInput}
+                    keyboardType="number-pad"
+                    value={offer}
+                    onChangeText={(text) => setOffer(text.replace(/[^\d]/g, ''))}
+                    placeholder="Enter fare"
+                    placeholderTextColor="#95A2AD"
+                    maxLength={7}
+                    returnKeyType="done"
+                  />
+                </View>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                disabled={updatingRideOffer}
+                onPress={() => void updateRideOffer(ride)}
+                style={({ pressed }) => [
+                  styles.updateOfferButton,
+                  (pressed || updatingRideOffer) && styles.requestButtonPressed,
+                ]}
+              >
+                {updatingRideOffer ? (
+                  <ActivityIndicator size="small" color={COLORS.green} />
+                ) : (
+                  <Text style={styles.updateOfferText}>Update manual offer</Text>
+                )}
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+
+        {accepted ? (
+          <View style={styles.matchNotice}>
+            <Ionicons name="checkmark-circle" size={18} color={COLORS.green} />
+            <Text style={styles.matchText}>
+              Accepted by {rideStatuses[ride.id]?.driver_name || 'your driver'}
+              {rideStatuses[ride.id]?.driver_vehicle ? ` · ${rideStatuses[ride.id].driver_vehicle}` : ''}
+              {rideStatuses[ride.id]?.driver_location ? ' · live location on map' : ''}
+            </Text>
+          </View>
+        ) : !cloudRide ? (
+          <Text style={styles.noDrivers}>
+            Sign in to send this request to real nearby drivers.
+          </Text>
+        ) : drivers.length > 0 ? (
+          <View style={styles.trackingDrivers}>
+            <Text style={styles.trackingRouteCaption}>AVAILABLE NEARBY</Text>
+            {drivers.slice(0, 4).map((driver) => (
+              <View key={driver.driver_id} style={styles.nearbyDriver}>
+                <View style={styles.nearbyAvatar}>
+                  <Ionicons
+                    name={driver.vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
+                    size={15}
+                    color={COLORS.green}
+                  />
+                </View>
+                <Text numberOfLines={1} style={styles.nearbyDriverName}>
+                  {driver.driver_name || 'Sawaari driver'} · {driver.vehicle}
+                </Text>
+                <Text style={styles.nearbyDistance}>
+                  {(driver.distance_m / 1000).toFixed(1)} km
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.noDrivers}>
+            No online drivers found nearby yet. Your request is still searching.
+          </Text>
+        )}
+
+        {matchingError ? <Text style={styles.errorBanner}>{matchingError}</Text> : null}
+        {!accepted ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => cancelRide(ride)}
+            style={styles.cancelRideButton}
+          >
+            <Text style={styles.cancelRideText}>Cancel ride request</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    );
+  };
+
   const renderRideScreen = () => (
     <View style={[styles.rideScreen, wideLayout && styles.rideScreenWide]}>
       <View style={[styles.mapColumn, wideLayout && styles.mapColumnWide]}>
@@ -1102,6 +1357,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         {renderMap()}
       </View>
       <View style={[styles.bookingSheet, wideLayout && styles.bookingSheetWide]}>
+        {showActiveRide && activeRide ? renderActiveRidePanel(activeRide) : (
         <ScrollView
           style={[styles.bookingScroll, wideLayout && styles.bookingScrollWide]}
           contentContainerStyle={styles.bookingContent}
@@ -1279,6 +1535,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             <Ionicons name="arrow-forward" size={19} color={COLORS.white} />
           </Pressable>
         </ScrollView>
+        )}
       </View>
       {renderPlaceSearch()}
     </View>
@@ -1936,6 +2193,78 @@ const styles = StyleSheet.create({
   bookingScroll: { flexGrow: 0, flexShrink: 1 },
   bookingScrollWide: { flex: 1, flexGrow: 1, minHeight: 0 },
   bookingContent: { paddingBottom: 10 },
+  trackingContent: { gap: 12, paddingBottom: 8 },
+  trackingHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  trackingHeadingIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E2F5EF',
+  },
+  trackingHeadingCopy: { flex: 1 },
+  trackingRouteCard: {
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.white,
+  },
+  trackingRoutePoint: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  trackingRouteCopy: { flex: 1 },
+  trackingRouteCaption: { color: COLORS.muted, fontSize: 8, fontWeight: '800', letterSpacing: 1 },
+  trackingRouteAddress: { marginTop: 3, color: COLORS.ink, fontSize: 11, fontWeight: '700' },
+  trackingRouteDivider: {
+    height: 1,
+    marginVertical: 9,
+    marginLeft: 19,
+    backgroundColor: COLORS.line,
+  },
+  trackingFareCard: {
+    padding: 13,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.white,
+    gap: 10,
+  },
+  trackingFareHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  trackingFareAmount: { marginTop: 3, color: COLORS.ink, fontSize: 20, fontWeight: '800' },
+  trackingVehicle: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  trackingVehicleName: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
+  trackingOfferRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  trackingOfferLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+  trackingOfferInputWrap: {
+    width: 145,
+    height: 40,
+    paddingHorizontal: 9,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  trackingOfferInput: {
+    flex: 1,
+    minWidth: 0,
+    padding: 0,
+    color: COLORS.ink,
+    textAlign: 'right',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  updateOfferButton: {
+    minHeight: 39,
+    borderRadius: 11,
+    backgroundColor: COLORS.lime,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  updateOfferText: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
+  trackingDrivers: { gap: 9, padding: 12, borderRadius: 14, backgroundColor: '#F4F7FA' },
   sheetHeading: {
     flexDirection: 'row',
     alignItems: 'center',
