@@ -582,9 +582,46 @@ export default function DriverScreen() {
         body: JSON.stringify({ request_id: request.request_id, offered_fare: amount }),
       });
       setOfferAmounts((current) => ({ ...current, [request.request_id]: String(amount) }));
+      setRequests((current) => current.map((item) => item.request_id === request.request_id
+        ? { ...item, my_offer_status: 'pending', my_offer_fare: amount }
+        : item));
       showMessage('Fare offer sent', 'The rider can now accept or reject your fare in the app.');
     } catch (error: unknown) {
       showMessage('Could not send fare offer', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSendingOfferId(null);
+    }
+  };
+
+  const respondToRideRequest = async (request: NearbyRequest, action: 'accept' | 'reject') => {
+    setSendingOfferId(request.request_id);
+    try {
+      await apiRequest('/driver/request-response', {
+        method: 'POST',
+        body: JSON.stringify({ request_id: request.request_id, action }),
+      });
+      if (action === 'accept') {
+        watch.current?.remove();
+        watch.current = null;
+        setIsOnline(false);
+        setActiveRide(request);
+        setRequests([]);
+        showMessage('Ride accepted', `You accepted the rider's fare of ${formatPkr(request.offered_fare)}.`);
+        return;
+      }
+
+      setRequests((current) => current.filter((item) => item.request_id !== request.request_id));
+      setOfferAmounts((current) => {
+        const next = { ...current };
+        delete next[request.request_id];
+        return next;
+      });
+      showMessage('Ride request rejected', 'This request was removed from your list. The rider can still match with other drivers.');
+    } catch (error: unknown) {
+      showMessage(
+        action === 'accept' ? 'Could not accept this fare' : 'Could not reject this request',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
     } finally {
       setSendingOfferId(null);
     }
@@ -685,7 +722,10 @@ export default function DriverScreen() {
     );
   }
 
+  const topRequest = requests[0] ?? null;
+
   return (
+    <View style={styles.screenRoot}>
     <ScrollView contentContainerStyle={styles.screen}>
       <View style={styles.driverIntro}>
         <View style={styles.driverIntroTop}>
@@ -879,53 +919,6 @@ export default function DriverScreen() {
           </Text>
         </View>
       ) : null}
-      {requests.map((request) => (
-        <View key={request.request_id} style={styles.requestCard}>
-          <View style={styles.requestTop}>
-            <View>
-              <Text style={styles.requestMetaLabel}>RIDER OFFER</Text>
-              <Text style={styles.requestFare}>PKR {request.offered_fare}</Text>
-            </View>
-            <Text style={styles.distance}>{(request.distance_m / 1000).toFixed(1)} km away</Text>
-          </View>
-          <Text style={styles.riderName}>Ride request · {request.rider_name || 'Sawaari rider'}</Text>
-          <Text style={styles.routeText}>Pickup: {request.pickup_address}</Text>
-          <Text style={styles.routeText}>Drop-off: {request.destination_address}</Text>
-          <Text style={styles.routeText}>{request.vehicle} · {new Date(request.created_at).toLocaleTimeString()}</Text>
-          {request.my_offer_status === 'pending' ? (
-            <Text style={styles.offerStatus}>Your offer is waiting for the rider. You can update the price.</Text>
-          ) : request.my_offer_status === 'rejected' ? (
-            <Text style={styles.offerRejected}>Rider declined your last offer. Change the price and send again.</Text>
-          ) : null}
-          <View style={styles.driverOfferInputWrap}>
-            <Text style={styles.driverOfferCurrency}>PKR</Text>
-            <TextInput
-              accessibilityLabel={`Your fare offer for ${request.rider_name || 'ride request'}`}
-              value={offerAmounts[request.request_id]
-                ?? String(request.my_offer_fare ?? request.offered_fare)}
-              onChangeText={(text) => setOfferAmounts((current) => ({
-                ...current,
-                [request.request_id]: text.replace(/[^\d]/g, ''),
-              }))}
-              keyboardType="number-pad"
-              maxLength={7}
-              placeholder="Your fare"
-              style={styles.driverOfferInput}
-            />
-          </View>
-          <Pressable
-            disabled={sendingOfferId === request.request_id}
-            onPress={() => void sendFareOffer(request)}
-            style={styles.acceptButton}
-          >
-            {sendingOfferId === request.request_id
-              ? <ActivityIndicator size="small" color={COLORS.green} />
-              : <Text style={styles.acceptText}>
-                {request.my_offer_status === 'pending' ? 'Update fare offer' : 'Send fare offer'}
-              </Text>}
-          </Pressable>
-        </View>
-      ))}
       {dashboard?.recent_rides.length ? (
         <View style={styles.historySection}>
           <Text style={styles.cardTitle}>Completed rides</Text>
@@ -952,11 +945,160 @@ export default function DriverScreen() {
         Cash tracking is an in-app record, not a money transfer. Electronic payments, payouts, navigation, live trip tracking, and safety support are not connected. Do not use this MVP for real passenger trips.
       </Text>
     </ScrollView>
+    {isOnline && !activeRide && topRequest ? (
+      <View pointerEvents="box-none" style={styles.requestPopupLayer}>
+        <View accessibilityLiveRegion="polite" style={styles.requestPopup}>
+          <View style={styles.requestPopupHeading}>
+            <View style={styles.requestPopupIcon}>
+              <Ionicons
+                name={topRequest.vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
+                size={19}
+                color={COLORS.green}
+              />
+            </View>
+            <View style={styles.requestPopupTitleCopy}>
+              <Text style={styles.requestPopupEyebrow}>NEW RIDE REQUEST</Text>
+              <Text numberOfLines={1} style={styles.requestPopupRider}>
+                {topRequest.rider_name || 'Sawaari rider'} · {topRequest.vehicle}
+              </Text>
+            </View>
+            <Text style={styles.requestPopupDistance}>{(topRequest.distance_m / 1000).toFixed(1)} km</Text>
+          </View>
+          <View style={styles.requestPopupFareRow}>
+            <View>
+              <Text style={styles.requestMetaLabel}>RIDER OFFER</Text>
+              <Text style={styles.requestPopupFare}>{formatPkr(topRequest.offered_fare)}</Text>
+            </View>
+            <Text style={styles.requestPopupTime}>
+              {new Date(topRequest.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </Text>
+          </View>
+          <Text numberOfLines={2} style={styles.requestPopupRoute}>
+            <Text style={styles.requestPopupRouteLabel}>Pickup · </Text>{topRequest.pickup_address}
+          </Text>
+          <Text numberOfLines={2} style={styles.requestPopupRoute}>
+            <Text style={styles.requestPopupRouteLabel}>Drop-off · </Text>{topRequest.destination_address}
+          </Text>
+          {topRequest.my_offer_status === 'pending' ? (
+            <Text style={styles.offerStatus}>Your counter-offer is waiting for the rider. You can change it below.</Text>
+          ) : topRequest.my_offer_status === 'rejected' ? (
+            <Text style={styles.offerRejected}>Rider declined your last offer. Change the price and resend it.</Text>
+          ) : null}
+          <View style={styles.driverOfferInputWrap}>
+            <Text style={styles.driverOfferCurrency}>PKR</Text>
+            <TextInput
+              accessibilityLabel={`Your fare offer for ${topRequest.rider_name || 'ride request'}`}
+              value={offerAmounts[topRequest.request_id]
+                ?? String(topRequest.my_offer_fare ?? topRequest.offered_fare)}
+              onChangeText={(text) => setOfferAmounts((current) => ({
+                ...current,
+                [topRequest.request_id]: text.replace(/[^\d]/g, ''),
+              }))}
+              keyboardType="number-pad"
+              maxLength={7}
+              placeholder="Your fare"
+              style={styles.driverOfferInput}
+            />
+            <Pressable
+              accessibilityRole="button"
+              disabled={sendingOfferId === topRequest.request_id}
+              onPress={() => void sendFareOffer(topRequest)}
+              style={styles.counterOfferButton}
+            >
+              {sendingOfferId === topRequest.request_id
+                ? <ActivityIndicator size="small" color={COLORS.green} />
+                : <Text style={styles.counterOfferText}>
+                  {topRequest.my_offer_status === 'pending' ? 'Update offer' : 'Counter'}
+                </Text>}
+            </Pressable>
+          </View>
+          <View style={styles.requestPopupActions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={sendingOfferId === topRequest.request_id}
+              onPress={() => void respondToRideRequest(topRequest, 'reject')}
+              style={[styles.rejectRequestButton, sendingOfferId === topRequest.request_id && styles.disabledRequestAction]}
+            >
+              <Text style={styles.rejectRequestText}>Reject</Text>
+            </Pressable>
+            {topRequest.my_offer_status === 'pending' ? (
+              <View style={[styles.acceptRequestButton, styles.waitingRequestButton]}>
+                <Text style={styles.waitingRequestText}>Waiting for rider</Text>
+              </View>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                disabled={sendingOfferId === topRequest.request_id}
+                onPress={() => void respondToRideRequest(topRequest, 'accept')}
+                style={[styles.acceptRequestButton, sendingOfferId === topRequest.request_id && styles.disabledRequestAction]}
+              >
+                {sendingOfferId === topRequest.request_id
+                  ? <ActivityIndicator size="small" color={COLORS.white} />
+                  : <Text style={styles.acceptRequestText}>Accept fare</Text>}
+              </Pressable>
+            )}
+          </View>
+          {requests.length > 1 ? (
+            <Text style={styles.requestQueueNote}>
+              +{requests.length - 1} more nearby {requests.length === 2 ? 'request' : 'requests'} after this one
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screenRoot: { flex: 1, position: 'relative', backgroundColor: COLORS.paper },
   screen: { padding: 18, paddingBottom: 36, gap: 14, backgroundColor: COLORS.paper, flexGrow: 1 },
+  requestPopupLayer: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    right: 0,
+    zIndex: 30,
+    elevation: 18,
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  requestPopup: {
+    width: '100%',
+    maxWidth: 520,
+    padding: 14,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#B9DED2',
+    backgroundColor: COLORS.white,
+    gap: 9,
+    shadowColor: '#12273A',
+    shadowOpacity: 0.22,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 7 },
+  },
+  requestPopupHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  requestPopupIcon: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.lime },
+  requestPopupTitleCopy: { flex: 1, minWidth: 0 },
+  requestPopupEyebrow: { color: COLORS.green, fontSize: 9, fontWeight: '900', letterSpacing: 0.9 },
+  requestPopupRider: { marginTop: 3, color: COLORS.ink, fontSize: 12, fontWeight: '800' },
+  requestPopupDistance: { color: COLORS.muted, fontSize: 10, fontWeight: '800' },
+  requestPopupFareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 1, borderTopColor: COLORS.line },
+  requestPopupFare: { color: COLORS.green, fontSize: 20, fontWeight: '900' },
+  requestPopupTime: { color: COLORS.muted, fontSize: 10, fontWeight: '700' },
+  requestPopupRoute: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  requestPopupRouteLabel: { color: COLORS.ink, fontWeight: '800' },
+  requestPopupActions: { flexDirection: 'row', gap: 9 },
+  acceptRequestButton: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center' },
+  acceptRequestText: { color: COLORS.white, fontSize: 11, fontWeight: '900' },
+  rejectRequestButton: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: '#FBE9E8', alignItems: 'center', justifyContent: 'center' },
+  rejectRequestText: { color: COLORS.red, fontSize: 11, fontWeight: '900' },
+  waitingRequestButton: { backgroundColor: '#E8EFED' },
+  waitingRequestText: { color: COLORS.muted, fontSize: 10, fontWeight: '800' },
+  disabledRequestAction: { opacity: 0.65 },
+  requestQueueNote: { color: COLORS.muted, fontSize: 9, textAlign: 'center' },
+  counterOfferButton: { minWidth: 78, minHeight: 38, paddingHorizontal: 10, borderRadius: 9, backgroundColor: COLORS.lime, alignItems: 'center', justifyContent: 'center' },
+  counterOfferText: { color: COLORS.green, fontSize: 10, fontWeight: '900' },
   eyebrow: { marginTop: 6, color: COLORS.green, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
   title: { color: COLORS.ink, fontSize: 27, fontWeight: '800', letterSpacing: -0.8 },
   subtitle: { color: COLORS.muted, fontSize: 13, lineHeight: 19 },

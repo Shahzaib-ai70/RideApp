@@ -124,4 +124,11 @@ create index if not exists ride_requests_rider_idx
 create index if not exists ride_requests_driver_idx
   on ride_requests (driver_id, updated_at desc) where driver_id is not null;
 
+create table if not exists driver_request_dismissals (
+  request_id uuid not null references ride_requests(id) on delete cascade,
+  driver_id uuid not null references app_users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (request_id, driver_id)
+);
+
 create index if not exists app_users_email_idx on app_users (lower(email));

@@ -973,11 +973,98 @@ async function route(request, response, url) {
        from ride_requests r join app_users rider on rider.id=r.rider_id
        where r.status='searching' and r.vehicle=$3 and r.rider_id<>$4
          and (r.driver_offer_status is distinct from 'pending' or r.driver_offer_id=$5)
+         and not exists (
+           select 1 from driver_request_dismissals dismissed
+           where dismissed.request_id=r.id and dismissed.driver_id=$4
+         )
          and ${sqlDistance} <= 10000
        order by distance_m, r.created_at limit 50`,
       [latitude, longitude, vehicle, user.id, user.id],
     );
     sendJson(response, 200, result.rows);
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/driver/request-response') {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    if (!isUuid(body.request_id) || !['accept', 'reject'].includes(body.action)) {
+      throw fail('Provide a valid ride request and choose accept or reject.');
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const approval = await client.query(
+        `select 1 from driver_applications where user_id=$1 and status='approved' for update`,
+        [user.id],
+      );
+      if (!approval.rowCount) throw fail('Driver approval is required to respond to ride requests.', 403);
+      const request = await client.query(
+        `select id, rider_id, vehicle, pickup_latitude, pickup_longitude,
+                driver_offer_id, driver_offer_status
+         from ride_requests where id=$1 and status='searching' for update`,
+        [body.request_id],
+      );
+      if (!request.rowCount) throw fail('This ride request is no longer available.', 409);
+      const ride = request.rows[0];
+      if (ride.rider_id === user.id) throw fail('You cannot respond to your own ride request.', 403);
+
+      const presence = await client.query(
+        `select vehicle, latitude, longitude from driver_presence
+         where user_id=$1 and is_online and updated_at > now() - interval '90 seconds'
+         for update`,
+        [user.id],
+      );
+      if (!presence.rowCount) throw fail('Go online with location enabled before responding.');
+      const driver = presence.rows[0];
+      if (ride.vehicle !== driver.vehicle) throw fail('Your vehicle does not match this ride request.', 409);
+      const distance = distanceMeters(
+        Number(driver.latitude),
+        Number(driver.longitude),
+        Number(ride.pickup_latitude),
+        Number(ride.pickup_longitude),
+      );
+      if (distance > 10000) throw fail('This ride request is outside your 10 km matching area.', 409);
+
+      if (body.action === 'accept') {
+        if (ride.driver_offer_status === 'pending') {
+          throw fail('A fare offer is already waiting for the rider. Wait for their response.', 409);
+        }
+        const accepted = await client.query(
+          `update ride_requests
+           set status='accepted', driver_id=$2, updated_at=now()
+           where id=$1 and status='searching' returning id`,
+          [body.request_id, user.id],
+        );
+        if (!accepted.rowCount) throw fail('This ride request is no longer available.', 409);
+        await client.query(
+          'update driver_presence set is_online=false where user_id=$1',
+          [user.id],
+        );
+      } else {
+        await client.query(
+          `insert into driver_request_dismissals (request_id, driver_id)
+           values ($1, $2) on conflict (request_id, driver_id) do nothing`,
+          [body.request_id, user.id],
+        );
+        if (ride.driver_offer_id === user.id && ride.driver_offer_status === 'pending') {
+          await client.query(
+            `update ride_requests set driver_offer_status='rejected', updated_at=now()
+             where id=$1`,
+            [body.request_id],
+          );
+        }
+      }
+
+      await client.query('commit');
+      sendJson(response, 200, { success: true, action: body.action });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
     return;
   }
 
