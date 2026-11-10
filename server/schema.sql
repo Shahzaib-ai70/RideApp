@@ -60,6 +60,11 @@ create table if not exists driver_applications (
 create index if not exists driver_applications_status_idx
   on driver_applications (status, submitted_at desc);
 
+alter table driver_applications
+  add column if not exists vehicle_color text not null default '',
+  add column if not exists vehicle_registration_number text not null default '',
+  add column if not exists driver_photo_path text;
+
 create table if not exists driver_presence (
   user_id uuid primary key references app_users(id) on delete cascade,
   vehicle text not null check (vehicle in ('Bike', 'Rickshaw', 'Car', 'Premium')),
@@ -131,6 +136,17 @@ create index if not exists ride_requests_rider_idx
   on ride_requests (rider_id, created_at desc);
 create index if not exists ride_requests_driver_idx
   on ride_requests (driver_id, updated_at desc) where driver_id is not null;
+
+create table if not exists driver_ratings (
+  request_id uuid primary key references ride_requests(id) on delete cascade,
+  rider_id uuid not null references app_users(id) on delete cascade,
+  driver_id uuid not null references app_users(id) on delete cascade,
+  rating smallint not null check (rating between 1 and 5),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists driver_ratings_driver_idx
+  on driver_ratings (driver_id, created_at desc);
 
 create table if not exists driver_request_dismissals (
   request_id uuid not null references ride_requests(id) on delete cascade,

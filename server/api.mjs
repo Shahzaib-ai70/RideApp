@@ -293,24 +293,27 @@ async function parseDriverUpload(request, userId) {
   await mkdir(config.privateDocumentsDir, { recursive: true, mode: 0o700 });
   const fields = {};
   const documents = [];
+  let driverPhotoPath = null;
   const createdFiles = [];
   const streamTasks = [];
   let parseError = null;
   const parser = Busboy({
     headers: request.headers,
-    limits: { files: 4, fileSize: MAX_DOCUMENT_BYTES, fields: 10, fieldSize: 2048 },
+    limits: { files: 5, fileSize: MAX_DOCUMENT_BYTES, fields: 10, fieldSize: 2048 },
   });
 
   parser.on('field', (name, value) => {
     fields[name] = value;
   });
-  parser.on('filesLimit', () => { parseError = fail('Upload exactly four driver documents.'); });
+  parser.on('filesLimit', () => { parseError = fail('Upload four driver documents and one profile photo.'); });
   parser.on('fieldsLimit', () => { parseError = fail('Too many form fields.'); });
   parser.on('file', (fieldName, stream, info) => {
     const mimeType = info.mimeType.toLowerCase();
     const extension = EXTENSIONS_BY_MIME.get(mimeType);
-    if (!DOCUMENT_TYPES.has(fieldName) || !extension) {
-      parseError = fail('Choose a PDF, JPG, or PNG for each required document.');
+    const isDriverPhoto = fieldName === 'driver_photo';
+    if ((!DOCUMENT_TYPES.has(fieldName) && !isDriverPhoto) || !extension
+      || (isDriverPhoto && mimeType === 'application/pdf')) {
+      parseError = fail('Choose a PDF, JPG, or PNG for each required document and a JPG or PNG profile photo.');
       stream.resume();
       return;
     }
@@ -352,13 +355,22 @@ async function parseDriverUpload(request, userId) {
           rejectTask(error);
           return;
         }
-        documents.push({
-          doc_type: fieldName,
-          path: storedName,
-          content_type: mimeType,
-          size,
-          name: basename(info.filename).slice(0, 180),
-        });
+        if (isDriverPhoto) {
+          if (driverPhotoPath) {
+            parseError = fail('Upload exactly one driver profile photo.');
+            rejectTask(parseError);
+            return;
+          }
+          driverPhotoPath = storedName;
+        } else {
+          documents.push({
+            doc_type: fieldName,
+            path: storedName,
+            content_type: mimeType,
+            size,
+            name: basename(info.filename).slice(0, 180),
+          });
+        }
         resolveTask();
       });
     });
@@ -381,12 +393,99 @@ async function parseDriverUpload(request, userId) {
       || [...DOCUMENT_TYPES].some((type) => !documents.some((item) => item.doc_type === type))) {
       throw fail('Upload all four required driver documents.');
     }
+    if (!driverPhotoPath) throw fail('Upload a driver profile photo.');
     for (const document of documents) {
       if (document.size < 1 || document.size > MAX_DOCUMENT_BYTES) {
         throw fail('Each driver document must be between 1 byte and 10 MB.');
       }
     }
-    return { fields, documents, createdFiles };
+    return { fields, documents, driverPhotoPath, createdFiles };
+  } catch (error) {
+    await Promise.all(createdFiles.map((path) => rm(path, { force: true })));
+    throw error;
+  }
+}
+
+async function parseDriverProfilePhoto(request, userId) {
+  await mkdir(config.privateDocumentsDir, { recursive: true, mode: 0o700 });
+  const fields = {};
+  const createdFiles = [];
+  let photoPath = null;
+  let parseError = null;
+  let streamTask = Promise.resolve();
+  const parser = Busboy({
+    headers: request.headers,
+    limits: { files: 1, fileSize: MAX_DOCUMENT_BYTES, fields: 2, fieldSize: 80 },
+  });
+  parser.on('field', (name, value) => {
+    if (name !== 'vehicle_color' && name !== 'vehicle_registration_number') {
+      parseError = fail('Unexpected driver profile field.');
+      return;
+    }
+    fields[name] = value;
+  });
+  parser.on('filesLimit', () => { parseError = fail('Upload exactly one driver profile photo.'); });
+  parser.on('fieldsLimit', () => { parseError = fail('Too many driver profile fields.'); });
+  parser.on('file', (fieldName, stream, info) => {
+    const mimeType = info.mimeType.toLowerCase();
+    const extension = EXTENSIONS_BY_MIME.get(mimeType);
+    if (fieldName !== 'driver_photo' || !extension || mimeType === 'application/pdf') {
+      parseError = fail('Choose a JPG or PNG driver photo.');
+      stream.resume();
+      return;
+    }
+    const storedName = `${userId}-${randomUUID()}${extension}`;
+    const fullPath = join(config.privateDocumentsDir, storedName);
+    createdFiles.push(fullPath);
+    const file = createWriteStream(fullPath, { flags: 'wx', mode: 0o600 });
+    stream.on('limit', () => { parseError = fail('The driver photo must be 10 MB or smaller.', 413); });
+    streamTask = new Promise((resolveTask, rejectTask) => {
+      file.on('error', rejectTask);
+      file.on('finish', async () => {
+        if (stream.truncated) {
+          parseError = fail('The driver photo must be 10 MB or smaller.', 413);
+          rejectTask(parseError);
+          return;
+        }
+        try {
+          const handle = await open(fullPath, 'r');
+          const header = Buffer.alloc(8);
+          let bytesRead;
+          try {
+            ({ bytesRead } = await handle.read(header, 0, header.length, 0));
+          } finally {
+            await handle.close();
+          }
+          const validSignature = mimeType === 'image/png'
+            ? bytesRead >= 8 && header.equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+            : bytesRead >= 3 && header[0] === 255 && header[1] === 216 && header[2] === 255;
+          if (!validSignature) {
+            parseError = fail('The selected driver photo does not match its image type.');
+            rejectTask(parseError);
+            return;
+          }
+          photoPath = storedName;
+          resolveTask();
+        } catch (error) {
+          rejectTask(error);
+        }
+      });
+    });
+    streamTask = streamTask.catch((error) => {
+      parseError ??= error;
+    });
+    stream.pipe(file);
+  });
+  const parsed = new Promise((resolveParsed, rejectParsed) => {
+    parser.on('error', rejectParsed);
+    parser.on('finish', resolveParsed);
+  });
+  request.pipe(parser);
+  try {
+    await parsed;
+    await streamTask;
+    if (parseError) throw parseError;
+    return { fields, photoPath, createdFiles };
   } catch (error) {
     await Promise.all(createdFiles.map((path) => rm(path, { force: true })));
     throw error;
@@ -396,11 +495,29 @@ async function parseDriverUpload(request, userId) {
 async function driverApplication(userId) {
   const result = await pool.query(
     `select id as application_id, full_name, vehicle_type, vehicle_make, vehicle_model,
-            vehicle_year, documents, status, review_note, submitted_at
+            vehicle_year, vehicle_color, vehicle_registration_number, driver_photo_path,
+            documents, status, review_note, submitted_at
      from driver_applications where user_id = $1`,
     [userId],
   );
-  return result.rows[0] ?? null;
+  const application = result.rows[0] ?? null;
+  if (!application) return null;
+  return {
+    ...application,
+    driver_photo_url: createDriverPhotoUrl(application.driver_photo_path),
+    driver_photo_path: undefined,
+  };
+}
+
+function createDriverPhotoUrl(path) {
+  if (typeof path !== 'string'
+    || !/^[0-9a-f-]{36}-[0-9a-f-]{36}\.(jpg|png)$/i.test(path)) return null;
+  const payload = Buffer.from(JSON.stringify({
+    exp: Math.floor(Date.now() / 3600000) * 3600 + 7200,
+    path,
+  })).toString('base64url');
+  const signature = signAdminPayload(payload);
+  return `${config.publicOrigin}/api/driver/photo?token=${encodeURIComponent(`${payload}.${signature}`)}`;
 }
 
 async function getNearbyDrivers(userId, rideId) {
@@ -511,6 +628,42 @@ async function route(request, response, url) {
   if (method === 'GET' && pathname === '/api/health') {
     await pool.query('select 1');
     sendJson(response, 200, { status: 'ok' });
+    return;
+  }
+
+  if (method === 'GET' && pathname === '/api/driver/photo') {
+    const [payload, signature, extra] = (url.searchParams.get('token') ?? '').split('.');
+    if (!payload || !signature || extra) throw fail('This driver photo link is invalid or expired.', 403);
+    const expected = Buffer.from(signAdminPayload(payload));
+    const received = Buffer.from(signature);
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+      throw fail('This driver photo link is invalid or expired.', 403);
+    }
+    let photo;
+    try {
+      photo = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    } catch {
+      throw fail('This driver photo link is invalid or expired.', 403);
+    }
+    if (!Number.isSafeInteger(photo.exp) || photo.exp <= Math.floor(Date.now() / 1000)
+      || photo.exp > Math.floor(Date.now() / 1000) + 7200
+      || typeof photo.path !== 'string'
+      || !/^[0-9a-f-]{36}-[0-9a-f-]{36}\.(jpg|png)$/i.test(photo.path)) {
+      throw fail('This driver photo link is invalid or expired.', 403);
+    }
+    response.writeHead(200, {
+      'Content-Type': photo.path.endsWith('.png') ? 'image/png' : 'image/jpeg',
+      'Cache-Control': 'private, max-age=300',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+    });
+    const stream = createReadStream(join(config.privateDocumentsDir, photo.path));
+    stream.on('error', (error) => {
+      console.error('Driver photo read failed:', error);
+      if (!response.headersSent) sendJson(response, 404, { error: 'Driver photo is unavailable.' });
+      else response.destroy(error);
+    });
+    stream.pipe(response);
     return;
   }
 
@@ -805,11 +958,59 @@ async function route(request, response, url) {
     return;
   }
 
+  if (method === 'POST' && pathname === '/api/driver/profile') {
+    const user = await requireUser(request);
+    const upload = await parseDriverProfilePhoto(request, user.id);
+    const color = (upload.fields.vehicle_color ?? '').trim();
+    const registrationNumber = (upload.fields.vehicle_registration_number ?? '')
+      .trim().toUpperCase();
+    if (!/^[\p{L}][\p{L}0-9 -]{0,39}$/u.test(color)
+      || !/^[A-Z0-9 -]{2,20}$/.test(registrationNumber)) {
+      await Promise.all(upload.createdFiles.map((path) => rm(path, { force: true })));
+      throw fail('Enter a valid vehicle color and registration number.');
+    }
+    const client = await pool.connect();
+    let previousPhotoPath = null;
+    try {
+      await client.query('begin');
+      const current = await client.query(
+        `select driver_photo_path from driver_applications
+         where user_id=$1 and status='approved' for update`,
+        [user.id],
+      );
+      if (!current.rowCount) throw fail('Driver approval is required to update your public profile.', 403);
+      previousPhotoPath = current.rows[0].driver_photo_path;
+      if (!upload.photoPath && !previousPhotoPath) {
+        throw fail('Upload a driver profile photo.');
+      }
+      await client.query(
+        `update driver_applications set vehicle_color=$2,
+           vehicle_registration_number=$3, driver_photo_path=coalesce($4, driver_photo_path)
+         where user_id=$1`,
+        [user.id, color, registrationNumber, upload.photoPath],
+      );
+      await client.query('commit');
+      if (previousPhotoPath && previousPhotoPath !== upload.photoPath
+        && /^[0-9a-f-]{36}-[0-9a-f-]{36}\.(jpg|png)$/i.test(previousPhotoPath)) {
+        await rm(join(config.privateDocumentsDir, previousPhotoPath), { force: true });
+      }
+      sendJson(response, 200, { success: true });
+    } catch (error) {
+      await client.query('rollback');
+      await Promise.all(upload.createdFiles.map((path) => rm(path, { force: true })));
+      throw error;
+    } finally {
+      client.release();
+    }
+    return;
+  }
+
   if (method === 'GET' && pathname === '/api/driver/dashboard') {
     const user = await requireUser(request);
     const [application, summary, rides] = await Promise.all([
       pool.query(
         `select full_name, vehicle_type, vehicle_make, vehicle_model, vehicle_year,
+                vehicle_color, vehicle_registration_number, driver_photo_path,
                 status, review_note, submitted_at
          from driver_applications where user_id=$1`,
         [user.id],
@@ -834,9 +1035,14 @@ async function route(request, response, url) {
         [user.id],
       ),
     ]);
+    const driverProfile = application.rows[0] ?? null;
     sendJson(response, 200, {
       profile: { display_name: user.display_name, email: user.email },
-      application: application.rows[0] ?? null,
+      application: driverProfile ? {
+        ...driverProfile,
+        driver_photo_url: createDriverPhotoUrl(driverProfile.driver_photo_path),
+        driver_photo_path: undefined,
+      } : null,
       summary: summary.rows[0],
       recent_rides: rides.rows,
       payment_method: 'cash',
@@ -847,25 +1053,30 @@ async function route(request, response, url) {
   if (method === 'POST' && pathname === '/api/driver/application') {
     const user = await requireUser(request);
     const upload = await parseDriverUpload(request, user.id);
-    const { fields, documents } = upload;
+    const { fields, documents, driverPhotoPath } = upload;
     const fullName = (fields.full_name ?? '').trim();
     const vehicleType = fields.vehicle_type ?? '';
     const vehicleMake = (fields.vehicle_make ?? '').trim();
     const vehicleModel = (fields.vehicle_model ?? '').trim();
     const vehicleYear = Number(fields.vehicle_year);
+    const vehicleColor = (fields.vehicle_color ?? '').trim();
+    const registrationNumber = (fields.vehicle_registration_number ?? '').trim().toUpperCase();
     if (fullName.length < 2 || fullName.length > 80 || !VEHICLES.has(vehicleType)
       || vehicleMake.length < 1 || vehicleMake.length > 80
       || vehicleModel.length < 1 || vehicleModel.length > 80
-      || !Number.isInteger(vehicleYear) || vehicleYear < 1980 || vehicleYear > 2100) {
+      || !Number.isInteger(vehicleYear) || vehicleYear < 1980 || vehicleYear > 2100
+      || !/^[\p{L}][\p{L}0-9 -]{0,39}$/u.test(vehicleColor)
+      || !/^[A-Z0-9 -]{2,20}$/.test(registrationNumber)) {
       await Promise.all(upload.createdFiles.map((path) => rm(path, { force: true })));
-      throw fail('Enter a valid name and vehicle make, model, year, and category.');
+      throw fail('Enter a valid name, vehicle make, model, year, color, and registration number.');
     }
     const client = await pool.connect();
     let previousDocumentPaths = [];
+    let previousDriverPhotoPath = null;
     try {
       await client.query('begin');
       const existing = await client.query(
-        'select id, status, documents from driver_applications where user_id = $1 for update',
+        'select id, status, documents, driver_photo_path from driver_applications where user_id = $1 for update',
         [user.id],
       );
       if (existing.rows[0]?.status === 'pending' || existing.rows[0]?.status === 'approved') {
@@ -874,18 +1085,23 @@ async function route(request, response, url) {
       const application = existing.rows[0]
         ? await client.query(
           `update driver_applications set full_name=$2, vehicle_type=$3, vehicle_make=$4,
-             vehicle_model=$5, vehicle_year=$6, documents=$7, status='pending',
+             vehicle_model=$5, vehicle_year=$6, documents=$7, vehicle_color=$8,
+             vehicle_registration_number=$9, driver_photo_path=$10, status='pending',
              review_note='', submitted_at=now(), reviewed_at=null, reviewed_by=null
            where id=$1 returning id, status`,
-          [existing.rows[0].id, fullName, vehicleType, vehicleMake, vehicleModel, vehicleYear, JSON.stringify(documents)],
+          [existing.rows[0].id, fullName, vehicleType, vehicleMake, vehicleModel, vehicleYear,
+            JSON.stringify(documents), vehicleColor, registrationNumber, driverPhotoPath],
         )
         : await client.query(
           `insert into driver_applications
-             (user_id, full_name, vehicle_type, vehicle_make, vehicle_model, vehicle_year, documents)
-           values ($1,$2,$3,$4,$5,$6,$7) returning id, status`,
-          [user.id, fullName, vehicleType, vehicleMake, vehicleModel, vehicleYear, JSON.stringify(documents)],
+             (user_id, full_name, vehicle_type, vehicle_make, vehicle_model, vehicle_year,
+              documents, vehicle_color, vehicle_registration_number, driver_photo_path)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id, status`,
+          [user.id, fullName, vehicleType, vehicleMake, vehicleModel, vehicleYear,
+            JSON.stringify(documents), vehicleColor, registrationNumber, driverPhotoPath],
         );
       if (existing.rows[0] && Array.isArray(existing.rows[0].documents)) {
+        previousDriverPhotoPath = existing.rows[0].driver_photo_path;
         previousDocumentPaths = existing.rows[0].documents
           .map((document) => document?.path)
           .filter((path) => typeof path === 'string'
@@ -895,6 +1111,10 @@ async function route(request, response, url) {
       await client.query('commit');
       await Promise.all(previousDocumentPaths.map((path) => rm(path, { force: true })))
         .catch((error) => console.error('Previous private document cleanup failed:', error));
+      if (previousDriverPhotoPath
+        && /^[0-9a-f-]{36}-[0-9a-f-]{36}\.(jpg|png)$/i.test(previousDriverPhotoPath)) {
+        await rm(join(config.privateDocumentsDir, previousDriverPhotoPath), { force: true });
+      }
       sendJson(response, 201, { application_id: application.rows[0].id, status: application.rows[0].status });
     } catch (error) {
       await client.query('rollback');
@@ -945,10 +1165,15 @@ async function route(request, response, url) {
     }
     if (online) {
       const application = await pool.query(
-        'select 1 from driver_applications where user_id = $1 and status = \'approved\'',
+        `select 1 from driver_applications
+         where user_id = $1 and status = 'approved'
+           and vehicle_color <> '' and vehicle_registration_number <> ''
+           and driver_photo_path is not null`,
         [user.id],
       );
-      if (!application.rowCount) throw fail('Driver approval is required before going online.', 403);
+      if (!application.rowCount) {
+        throw fail('Complete your public driver and vehicle profile before going online.', 403);
+      }
       const active = await pool.query(
         `select 1 from ride_requests where driver_id = $1 and status = 'accepted'`,
         [user.id],
@@ -1257,6 +1482,19 @@ async function route(request, response, url) {
       `select r.status, r.offered_fare as agreed_fare,
               coalesce(driver.display_name, '') as driver_name,
               coalesce(presence.vehicle, '') as driver_vehicle,
+              coalesce(driver_application.vehicle_make, '') as driver_vehicle_make,
+              coalesce(driver_application.vehicle_model, '') as driver_vehicle_model,
+              driver_application.vehicle_year as driver_vehicle_year,
+              coalesce(driver_application.vehicle_color, '') as driver_vehicle_color,
+              coalesce(driver_application.vehicle_registration_number, '') as driver_vehicle_registration_number,
+              driver_application.driver_photo_path,
+              (select round(avg(rating)::numeric, 1)::double precision
+               from driver_ratings where driver_id=r.driver_id) as driver_rating,
+              (select count(*)::int from driver_ratings where driver_id=r.driver_id)
+                as driver_rating_count,
+              (select count(*)::int from ride_requests
+               where driver_id=r.driver_id and status='completed') as driver_completed_rides,
+              rider_rating.rating as rider_rating,
               r.driver_offer_status,
               case when r.driver_offer_status='pending' then offer_driver.display_name else '' end
                 as offer_driver_name,
@@ -1272,6 +1510,10 @@ async function route(request, response, url) {
                 then presence.updated_at else null end as driver_location_updated_at
        from ride_requests r left join app_users driver on driver.id=r.driver_id
        left join driver_presence presence on presence.user_id=r.driver_id
+       left join driver_applications driver_application
+         on driver_application.user_id=r.driver_id
+       left join driver_ratings rider_rating
+         on rider_rating.request_id=r.id and rider_rating.rider_id=r.rider_id
        left join app_users offer_driver on offer_driver.id=r.driver_offer_id
        left join driver_presence offer_presence on offer_presence.user_id=r.driver_offer_id
        where r.id=$1 and r.rider_id=$2`,
@@ -1279,8 +1521,45 @@ async function route(request, response, url) {
     );
     if (!rideResult.rowCount) throw fail('Ride request not found.', 404);
     const status = rideResult.rows[0];
+    status.driver_photo_url = createDriverPhotoUrl(status.driver_photo_path);
+    delete status.driver_photo_path;
     const drivers = status.status === 'searching' ? await getNearbyDrivers(user.id, rideId) : [];
     sendJson(response, 200, { status, drivers });
+    return;
+  }
+
+  const rideRatingMatch = pathname.match(/^\/api\/rides\/([0-9a-f-]{36})\/rating$/i);
+  if (method === 'POST' && rideRatingMatch) {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    if (!Number.isInteger(body.rating) || body.rating < 1 || body.rating > 5) {
+      throw fail('Choose a rating from 1 to 5 stars.');
+    }
+    const ride = await pool.query(
+      `select driver_id from ride_requests
+       where id=$1 and rider_id=$2 and status='completed'`,
+      [rideRatingMatch[1], user.id],
+    );
+    if (!ride.rowCount || !ride.rows[0].driver_id) {
+      throw fail('You can rate the driver after this ride is completed.', 409);
+    }
+    try {
+      await pool.query(
+        `insert into driver_ratings (request_id, rider_id, driver_id, rating)
+         values ($1,$2,$3,$4)`,
+        [rideRatingMatch[1], user.id, ride.rows[0].driver_id, body.rating],
+      );
+    } catch (error) {
+      if (error?.code === '23505') throw fail('You have already rated this ride.', 409);
+      throw error;
+    }
+    const result = await pool.query(
+      `select round(avg(rating)::numeric, 1)::double precision as rating,
+              count(*)::int as rating_count
+       from driver_ratings where driver_id=$1`,
+      [ride.rows[0].driver_id],
+    );
+    sendJson(response, 201, result.rows[0]);
     return;
   }
 

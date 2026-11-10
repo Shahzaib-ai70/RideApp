@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   Pressable,
   Platform,
@@ -65,6 +66,16 @@ type RideServerStatus = {
   agreed_fare: number | null;
   driver_name: string;
   driver_vehicle: string;
+  driver_vehicle_make?: string;
+  driver_vehicle_model?: string;
+  driver_vehicle_year?: number | null;
+  driver_vehicle_color?: string;
+  driver_vehicle_registration_number?: string;
+  driver_photo_url?: string | null;
+  driver_rating?: number | null;
+  driver_rating_count?: number;
+  driver_completed_rides?: number;
+  rider_rating?: number | null;
   driver_location_updated_at: string | null;
   driver_location: Coordinate | null;
   driver_offer_status: 'pending' | 'rejected' | 'accepted' | null;
@@ -244,6 +255,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [updatingRideOffer, setUpdatingRideOffer] = useState(false);
   const [respondingToOffer, setRespondingToOffer] = useState(false);
+  const [submittingRating, setSubmittingRating] = useState<string | null>(null);
   const [locationGranted, setLocationGranted] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [locationPromptVisible, setLocationPromptVisible] = useState(false);
@@ -347,6 +359,37 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   : null,
                 driver_name: status.driver_name,
                 driver_vehicle: status.driver_vehicle,
+                driver_vehicle_make: typeof status.driver_vehicle_make === 'string'
+                  ? status.driver_vehicle_make
+                  : '',
+                driver_vehicle_model: typeof status.driver_vehicle_model === 'string'
+                  ? status.driver_vehicle_model
+                  : '',
+                driver_vehicle_year: typeof status.driver_vehicle_year === 'number'
+                  ? status.driver_vehicle_year
+                  : null,
+                driver_vehicle_color: typeof status.driver_vehicle_color === 'string'
+                  ? status.driver_vehicle_color
+                  : '',
+                driver_vehicle_registration_number:
+                  typeof status.driver_vehicle_registration_number === 'string'
+                    ? status.driver_vehicle_registration_number
+                    : '',
+                driver_photo_url: typeof status.driver_photo_url === 'string'
+                  ? status.driver_photo_url
+                  : null,
+                driver_rating: typeof status.driver_rating === 'number'
+                  ? status.driver_rating
+                  : null,
+                driver_rating_count: typeof status.driver_rating_count === 'number'
+                  ? status.driver_rating_count
+                  : 0,
+                driver_completed_rides: typeof status.driver_completed_rides === 'number'
+                  ? status.driver_completed_rides
+                  : 0,
+                rider_rating: typeof status.rider_rating === 'number'
+                  ? status.rider_rating
+                  : null,
                 driver_location_updated_at: typeof status.driver_location_updated_at === 'string'
                   ? status.driver_location_updated_at
                   : null,
@@ -927,6 +970,37 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     }
   };
 
+  const rateDriver = async (rideId: string, rating: number) => {
+    setSubmittingRating(rideId);
+    setMatchingError('');
+    try {
+      const result = await apiRequest<{ rating: number; rating_count: number }>(
+        `/rides/${encodeURIComponent(rideId)}/rating`,
+        { method: 'POST', body: JSON.stringify({ rating }) },
+      );
+      setRideStatuses((current) => {
+        const status = current[rideId];
+        if (!status) return current;
+        return {
+          ...current,
+          [rideId]: {
+            ...status,
+            rider_rating: rating,
+            driver_rating: result.rating,
+            driver_rating_count: result.rating_count,
+          },
+        };
+      });
+      showMessage('Rating submitted', 'Thank you for rating your driver.');
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : 'Please try again.';
+      setMatchingError(detail);
+      showMessage('Could not submit rating', detail);
+    } finally {
+      setSubmittingRating(null);
+    }
+  };
+
   const cancelRide = (ride: Ride) => {
     const cancel = async () => {
       if (!ride.cloud) {
@@ -1355,13 +1429,79 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         </View>
 
         {accepted ? (
-          <View style={styles.matchNotice}>
-            <Ionicons name="checkmark-circle" size={18} color={COLORS.green} />
-            <Text style={styles.matchText}>
-              Accepted by {rideStatuses[ride.id]?.driver_name || 'your driver'}
-              {rideStatuses[ride.id]?.driver_vehicle ? ` · ${rideStatuses[ride.id].driver_vehicle}` : ''}
-              {rideStatuses[ride.id]?.driver_location ? ' · live location on map' : ''}
-            </Text>
+          <View style={styles.acceptedDriverCard}>
+            <View style={styles.acceptedDriverHeader}>
+              {rideStatuses[ride.id]?.driver_photo_url ? (
+                <Image
+                  accessibilityLabel={`${rideStatuses[ride.id]?.driver_name || 'Driver'} profile photo`}
+                  source={{ uri: rideStatuses[ride.id]?.driver_photo_url ?? undefined }}
+                  style={styles.acceptedDriverPhoto}
+                />
+              ) : (
+                <View style={[styles.acceptedDriverPhoto, styles.acceptedDriverPhotoFallback]}>
+                  <Ionicons name="person" size={25} color={COLORS.green} />
+                </View>
+              )}
+              <View style={styles.acceptedDriverIdentity}>
+                <View style={styles.acceptedDriverNameRow}>
+                  <Text numberOfLines={1} style={styles.acceptedDriverName}>
+                    {rideStatuses[ride.id]?.driver_name || 'Your driver'}
+                  </Text>
+                  <View style={styles.driverVerifiedBadge}>
+                    <Ionicons name="checkmark-circle" size={13} color={COLORS.green} />
+                    <Text style={styles.driverVerifiedText}>APPROVED</Text>
+                  </View>
+                </View>
+                <View style={styles.driverRatingRow}>
+                  <Ionicons
+                    name={typeof rideStatuses[ride.id]?.driver_rating === 'number'
+                      ? 'star'
+                      : 'sparkles'}
+                    size={14}
+                    color={COLORS.orange}
+                  />
+                  <Text style={styles.driverRatingText}>
+                    {typeof rideStatuses[ride.id]?.driver_rating === 'number'
+                      && (rideStatuses[ride.id]?.driver_rating_count ?? 0) > 0
+                      ? `${rideStatuses[ride.id]?.driver_rating?.toFixed(1)} · ${rideStatuses[ride.id]?.driver_rating_count} rider ratings`
+                      : 'New driver · no ratings yet'}
+                  </Text>
+                </View>
+                <Text style={styles.driverRidesText}>
+                  {rideStatuses[ride.id]?.driver_completed_rides ?? 0} completed Sawaari rides
+                </Text>
+              </View>
+            </View>
+            <View style={styles.driverVehicleDetails}>
+              <View style={styles.driverVehicleTitleRow}>
+                <Ionicons name="car-sport-outline" size={17} color={COLORS.green} />
+                <Text style={styles.driverVehicleTitle}>
+                  {[
+                    rideStatuses[ride.id]?.driver_vehicle_year,
+                    rideStatuses[ride.id]?.driver_vehicle_make,
+                    rideStatuses[ride.id]?.driver_vehicle_model,
+                  ].filter(Boolean).join(' ') || rideStatuses[ride.id]?.driver_vehicle || ride.vehicle}
+                </Text>
+              </View>
+              <View style={styles.driverVehicleMeta}>
+                <Text style={styles.driverVehicleColor}>
+                  {rideStatuses[ride.id]?.driver_vehicle_color || 'Color not provided'}
+                </Text>
+                <View style={styles.driverPlate}>
+                  <Text style={styles.driverPlateText}>
+                    {rideStatuses[ride.id]?.driver_vehicle_registration_number || 'Plate not provided'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <View style={styles.driverMatchFooter}>
+              <Ionicons name="checkmark-circle" size={16} color={COLORS.green} />
+              <Text style={styles.driverMatchText}>
+                {rideStatuses[ride.id]?.driver_location
+                  ? 'Driver accepted · live location on map'
+                  : 'Driver accepted · waiting for live location'}
+              </Text>
+            </View>
           </View>
         ) : !cloudRide ? (
           <Text style={styles.noDrivers}>
@@ -1827,6 +1967,45 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               ) : null}
               {ride.cloud && rideStatuses[ride.id]?.status === 'accepted' ? (
                 <View>
+                  <View style={styles.tripAcceptedDriver}>
+                    {rideStatuses[ride.id].driver_photo_url ? (
+                      <Image
+                        accessibilityLabel={`${rideStatuses[ride.id].driver_name || 'Driver'} profile photo`}
+                        source={{ uri: rideStatuses[ride.id].driver_photo_url ?? undefined }}
+                        style={styles.tripDriverPhoto}
+                      />
+                    ) : (
+                      <View style={[styles.tripDriverPhoto, styles.acceptedDriverPhotoFallback]}>
+                        <Ionicons name="person" size={19} color={COLORS.green} />
+                      </View>
+                    )}
+                    <View style={styles.tripDriverCopy}>
+                      <Text style={styles.acceptedDriverName}>
+                        {rideStatuses[ride.id].driver_name || 'Your driver'}
+                      </Text>
+                      <Text style={styles.driverRidesText}>
+                        {[
+                          rideStatuses[ride.id].driver_vehicle_year,
+                          rideStatuses[ride.id].driver_vehicle_make,
+                          rideStatuses[ride.id].driver_vehicle_model,
+                        ].filter(Boolean).join(' ') || rideStatuses[ride.id].driver_vehicle}
+                        {rideStatuses[ride.id].driver_vehicle_color
+                          ? ` · ${rideStatuses[ride.id].driver_vehicle_color}`
+                          : ''}
+                      </Text>
+                      <View style={styles.tripDriverMeta}>
+                        <Ionicons name="star" size={13} color={COLORS.orange} />
+                        <Text style={styles.driverRatingText}>
+                          {rideStatuses[ride.id].driver_rating_count
+                            ? `${rideStatuses[ride.id].driver_rating?.toFixed(1)} (${rideStatuses[ride.id].driver_rating_count})`
+                            : 'New driver · no ratings'}
+                        </Text>
+                        <Text style={styles.tripDriverPlate}>
+                          {rideStatuses[ride.id].driver_vehicle_registration_number || 'Plate not provided'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
                   <View style={styles.matchNotice}>
                     <Ionicons name="checkmark-circle" size={18} color={COLORS.green} />
                     <Text style={styles.matchText}>
@@ -1843,7 +2022,39 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   </Text>
                 </View>
               ) : ride.cloud && rideStatuses[ride.id]?.status === 'completed' ? (
-                <Text style={styles.matchText}>This ride has been marked complete.</Text>
+                <View style={styles.completedRideCard}>
+                  <Text style={styles.matchText}>This ride has been marked complete.</Text>
+                  {rideStatuses[ride.id]?.rider_rating ? (
+                    <View style={styles.ratingThanksRow}>
+                      <Ionicons name="star" size={15} color={COLORS.orange} />
+                      <Text style={styles.driverRatingText}>
+                        You rated this driver {rideStatuses[ride.id]?.rider_rating}/5
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.rateDriverPrompt}>How was your driver?</Text>
+                      <View style={styles.rateDriverStars}>
+                        {[1, 2, 3, 4, 5].map((rating) => (
+                          <Pressable
+                            key={rating}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Rate driver ${rating} out of 5 stars`}
+                            disabled={submittingRating === ride.id}
+                            onPress={() => void rateDriver(ride.id, rating)}
+                            style={styles.rateDriverStarButton}
+                          >
+                            {submittingRating === ride.id ? (
+                              <ActivityIndicator size="small" color={COLORS.orange} />
+                            ) : (
+                              <Ionicons name="star" size={26} color={COLORS.orange} />
+                            )}
+                          </Pressable>
+                        ))}
+                      </View>
+                    </>
+                  )}
+                </View>
               ) : ride.cloud && rideStatuses[ride.id]?.status === 'cancelled' ? (
                 <Text style={styles.noDrivers}>This request was cancelled.</Text>
               ) : ride.cloud ? (
@@ -2649,6 +2860,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  acceptedDriverCard: {
+    marginTop: 12,
+    padding: 13,
+    gap: 11,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.white,
+  },
+  acceptedDriverHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  acceptedDriverPhoto: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#E8F4EE' },
+  acceptedDriverPhotoFallback: { alignItems: 'center', justifyContent: 'center' },
+  acceptedDriverIdentity: { flex: 1, minWidth: 0, gap: 3 },
+  acceptedDriverNameRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  acceptedDriverName: { flexShrink: 1, color: COLORS.ink, fontSize: 14, fontWeight: '900' },
+  driverVerifiedBadge: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  driverVerifiedText: { color: COLORS.green, fontSize: 8, fontWeight: '900', letterSpacing: 0.4 },
+  driverRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  driverRatingText: { color: COLORS.ink, fontSize: 10, fontWeight: '700' },
+  driverRidesText: { color: COLORS.muted, fontSize: 9, fontWeight: '600' },
+  driverVehicleDetails: { padding: 10, borderRadius: 11, backgroundColor: '#F4F7FA', gap: 7 },
+  driverVehicleTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  driverVehicleTitle: { flex: 1, color: COLORS.ink, fontSize: 11, fontWeight: '800' },
+  driverVehicleMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  driverVehicleColor: { color: COLORS.muted, fontSize: 10, fontWeight: '700' },
+  driverPlate: { paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: '#BAC8CE', borderRadius: 5, backgroundColor: COLORS.white },
+  driverPlateText: { color: COLORS.ink, fontSize: 10, fontWeight: '900', letterSpacing: 0.6 },
+  driverMatchFooter: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 9, borderRadius: 9, backgroundColor: '#EAF1F7' },
+  driverMatchText: { flex: 1, color: COLORS.green, fontSize: 10, fontWeight: '700' },
+  tripAcceptedDriver: { marginTop: 10, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 12, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  tripDriverPhoto: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#E8F4EE' },
+  tripDriverCopy: { flex: 1, minWidth: 0, gap: 3 },
+  tripDriverMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  tripDriverPlate: { marginLeft: 'auto', paddingHorizontal: 5, paddingVertical: 2, borderWidth: 1, borderColor: '#BAC8CE', borderRadius: 4, color: COLORS.ink, fontSize: 8, fontWeight: '900' },
+  completedRideCard: { marginTop: 8, padding: 11, borderRadius: 11, backgroundColor: '#F4F7FA', gap: 8 },
+  rateDriverPrompt: { color: COLORS.ink, fontSize: 11, fontWeight: '800' },
+  rateDriverStars: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  rateDriverStarButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  ratingThanksRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   driverOfferPopupLayer: {
     position: 'absolute',
     top: 0,

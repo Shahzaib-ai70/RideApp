@@ -4,6 +4,7 @@ import { File as ExpoFile } from 'expo-file-system';
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   Platform,
   StyleSheet,
@@ -35,16 +36,20 @@ export type DriverApplicationSummary = {
   vehicle_make: string;
   vehicle_model: string;
   vehicle_year: number;
+  vehicle_color?: string;
+  vehicle_registration_number?: string;
+  driver_photo_url?: string | null;
   documents: unknown;
   status: DriverApplicationStatus;
   review_note: string;
 };
 
-type DocumentKind = 'cnic' | 'driving_license' | 'vehicle_registration' | 'vehicle_photo';
+type DocumentKind = 'cnic' | 'driving_license' | 'vehicle_registration' | 'vehicle_photo' | 'driver_photo';
 type SelectedDocument = {
   name: string;
   mimeType: string;
   size: number;
+  uri: string;
   file?: ExpoFile;
   webFile?: File;
 };
@@ -87,11 +92,17 @@ export default function DriverVerification({
   const [vehicleYear, setVehicleYear] = useState(application?.vehicle_year
     ? String(application.vehicle_year)
     : '');
+  const [vehicleColor, setVehicleColor] = useState(application?.vehicle_color ?? '');
+  const [registrationNumber, setRegistrationNumber] = useState(
+    application?.vehicle_registration_number ?? '',
+  );
+  const [driverPhoto, setDriverPhoto] = useState<SelectedDocument | null>(null);
   const [documents, setDocuments] = useState<Record<DocumentKind, SelectedDocument | null>>({
     cnic: null,
     driving_license: null,
     vehicle_registration: null,
     vehicle_photo: null,
+    driver_photo: null,
   });
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
@@ -112,7 +123,8 @@ export default function DriverVerification({
       const extension = getExtension(asset.name);
       const mimeType = asset.mimeType || mimeFromExtension(extension);
       if (!MIME_TYPES.includes(mimeType as (typeof MIME_TYPES)[number])
-        || !['pdf', 'jpg', 'jpeg', 'png'].includes(extension)) {
+        || !['pdf', 'jpg', 'jpeg', 'png'].includes(extension)
+        || (kind === 'driver_photo' && mimeType === 'application/pdf')) {
         throw new Error('Choose a PDF, JPG, JPEG, or PNG file.');
       }
 
@@ -122,16 +134,16 @@ export default function DriverVerification({
       if (size <= 0 || size > MAX_FILE_BYTES) {
         throw new Error('The file size could not be checked or it exceeds 10 MB. Choose a smaller file.');
       }
-      setDocuments((current) => ({
-        ...current,
-        [kind]: {
-          name: asset.name,
-          mimeType,
-          size,
-          ...(file ? { file } : {}),
-          ...(webFile ? { webFile } : {}),
-        },
-      }));
+      const selected: SelectedDocument = {
+        name: asset.name,
+        mimeType,
+        size,
+        uri: asset.uri,
+        ...(file ? { file } : {}),
+        ...(webFile ? { webFile } : {}),
+      };
+      if (kind === 'driver_photo') setDriverPhoto(selected);
+      else setDocuments((current) => ({ ...current, [kind]: selected }));
     } catch (pickError: unknown) {
       setError(pickError instanceof Error ? pickError.message : 'Could not open the document picker.');
     }
@@ -140,13 +152,18 @@ export default function DriverVerification({
   const submit = async () => {
     if (fullName.trim().length < 2 || vehicleMake.trim().length < 1
       || vehicleModel.trim().length < 1 || !/^\d{4}$/.test(vehicleYear)
-      || Number(vehicleYear) < 1980 || Number(vehicleYear) > new Date().getFullYear() + 1) {
-      setError('Enter your legal name and valid vehicle make, model, and year.');
+      || Number(vehicleYear) < 1980 || Number(vehicleYear) > new Date().getFullYear() + 1
+      || vehicleColor.trim().length < 2 || registrationNumber.trim().length < 2) {
+      setError('Enter your legal name and valid vehicle make, model, year, color, and registration number.');
       return;
     }
     const missing = DOCUMENTS.find(({ kind }) => !documents[kind]);
     if (missing) {
       setError(`Please add: ${missing.label}.`);
+      return;
+    }
+    if (!driverPhoto) {
+      setError('Please add a clear driver profile photo. Riders see it after you accept their request.');
       return;
     }
 
@@ -159,6 +176,8 @@ export default function DriverVerification({
       formData.append('vehicle_make', vehicleMake.trim());
       formData.append('vehicle_model', vehicleModel.trim());
       formData.append('vehicle_year', String(Number(vehicleYear)));
+      formData.append('vehicle_color', vehicleColor.trim());
+      formData.append('vehicle_registration_number', registrationNumber.trim().toUpperCase());
       for (const [index, document] of DOCUMENTS.entries()) {
         const selected = documents[document.kind];
         if (!selected) throw new Error(`Please add: ${document.label}.`);
@@ -168,6 +187,15 @@ export default function DriverVerification({
         const content = await file.arrayBuffer();
         formData.append(document.kind, new Blob([content], { type: selected.mimeType }), selected.name);
       }
+      const photoFile = driverPhoto.webFile ?? driverPhoto.file;
+      if (!photoFile) throw new Error('Could not read the selected driver photo. Please choose it again.');
+      setProgress('Preparing driver photo...');
+      const photoContent = await photoFile.arrayBuffer();
+      formData.append(
+        'driver_photo',
+        new Blob([photoContent], { type: driverPhoto.mimeType }),
+        driverPhoto.name,
+      );
 
       setProgress('Uploading documents securely and submitting for review...');
       const result = await apiRequest<{ status: string }>('/driver/application', {
@@ -178,7 +206,14 @@ export default function DriverVerification({
         throw new Error('The server did not confirm that your application entered review.');
       }
 
-      setDocuments({ cnic: null, driving_license: null, vehicle_registration: null, vehicle_photo: null });
+      setDocuments({
+        cnic: null,
+        driving_license: null,
+        vehicle_registration: null,
+        vehicle_photo: null,
+        driver_photo: null,
+      });
+      setDriverPhoto(null);
       setProgress('');
       onSubmitted();
     } catch (submitError: unknown) {
@@ -190,8 +225,120 @@ export default function DriverVerification({
     }
   };
 
+  const savePublicProfile = async () => {
+    if (vehicleColor.trim().length < 2 || registrationNumber.trim().length < 2) {
+      setError('Enter your vehicle color and registration number so the rider can identify it.');
+      return;
+    }
+    if (!driverPhoto && !application?.driver_photo_url) {
+      setError('Add a clear driver photo so your rider can identify you.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('vehicle_color', vehicleColor.trim());
+      formData.append('vehicle_registration_number', registrationNumber.trim().toUpperCase());
+      if (driverPhoto) {
+        const file = driverPhoto.webFile ?? driverPhoto.file;
+        if (!file) throw new Error('Could not read the selected driver photo. Please choose it again.');
+        const content = await file.arrayBuffer();
+        formData.append(
+          'driver_photo',
+          new Blob([content], { type: driverPhoto.mimeType }),
+          driverPhoto.name,
+        );
+      }
+      const result = await apiRequest<{ success: boolean }>('/driver/profile', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!result.success) throw new Error('The server did not confirm the profile update.');
+      setDriverPhoto(null);
+      setProgress('');
+      onSubmitted();
+    } catch (submitError: unknown) {
+      setError(submitError instanceof Error ? submitError.message : 'Could not save your driver profile.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (application && application.status !== 'needs_changes' && application.status !== 'rejected') {
     const approved = application.status === 'approved';
+    const savedPhoto = driverPhoto?.uri ?? application.driver_photo_url;
+    if (approved) {
+      return (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Your rider-facing driver profile</Text>
+          <Text style={styles.copy}>
+            Riders see these driver and vehicle details only after you accept their ride.
+          </Text>
+          {savedPhoto ? (
+            <Image source={{ uri: savedPhoto }} style={styles.profilePhoto} />
+          ) : (
+            <View style={styles.profilePhotoPlaceholder}>
+              <Ionicons name="person" size={28} color={COLORS.green} />
+            </View>
+          )}
+          <Text style={styles.label}>Vehicle color</Text>
+          <TextInput
+            accessibilityLabel="Vehicle color shown to riders"
+            value={vehicleColor}
+            onChangeText={setVehicleColor}
+            autoCapitalize="words"
+            placeholder="e.g. White"
+            editable={!busy}
+            style={styles.input}
+          />
+          <Text style={styles.label}>Vehicle registration number</Text>
+          <TextInput
+            accessibilityLabel="Vehicle registration number shown to riders"
+            value={registrationNumber}
+            onChangeText={(value) => setRegistrationNumber(value.toUpperCase())}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            placeholder="e.g. ABC-123"
+            editable={!busy}
+            maxLength={20}
+            style={styles.input}
+          />
+          <View style={styles.documentRow}>
+            <View style={styles.documentCopy}>
+              <Text style={styles.documentTitle}>Driver photo</Text>
+              <Text style={styles.documentDetail}>
+                {driverPhoto?.name ?? 'A clear face photo helps your rider identify you.'}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Choose driver profile photo"
+              disabled={busy}
+              onPress={() => void pickDocument('driver_photo')}
+              style={styles.chooseButton}
+            >
+              <Text style={styles.chooseText}>{driverPhoto || application.driver_photo_url ? 'Replace' : 'Choose'}</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.privacy}>
+            Your photo, vehicle color, and registration number are shared with the rider assigned to your accepted trip.
+          </Text>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => void savePublicProfile()}
+            style={[styles.submitButton, busy && styles.disabledButton]}
+          >
+            {busy
+              ? <ActivityIndicator color={COLORS.green} />
+              : <Text style={styles.submitText}>Save rider-facing profile</Text>}
+          </Pressable>
+          {progress ? <Text style={styles.progress}>{progress}</Text> : null}
+        </View>
+      );
+    }
     return (
       <View style={styles.statusCard}>
         <View style={[styles.statusIcon, approved && styles.approvedIcon]}>
@@ -217,7 +364,7 @@ export default function DriverVerification({
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{isResubmission ? 'Update your documents' : 'Driver verification'}</Text>
       <Text style={styles.copy}>
-        Submit your information and four documents for manual review. Only you and an authorized Sawaari reviewer can access your files.
+        Submit your information and four private documents for manual review, plus a driver photo and vehicle details riders can use to identify you.
       </Text>
       {application?.review_note ? (
         <View style={styles.reviewNoteBox}>
@@ -280,6 +427,28 @@ export default function DriverVerification({
         editable={!busy}
         style={styles.input}
       />
+      <Text style={styles.label}>Vehicle color</Text>
+      <TextInput
+        accessibilityLabel="Vehicle color"
+        value={vehicleColor}
+        onChangeText={setVehicleColor}
+        autoCapitalize="words"
+        placeholder="e.g. White"
+        editable={!busy}
+        style={styles.input}
+      />
+      <Text style={styles.label}>Vehicle registration number</Text>
+      <TextInput
+        accessibilityLabel="Vehicle registration number"
+        value={registrationNumber}
+        onChangeText={(value) => setRegistrationNumber(value.toUpperCase())}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        placeholder="e.g. ABC-123"
+        editable={!busy}
+        maxLength={20}
+        style={styles.input}
+      />
 
       <Text style={styles.label}>Required documents</Text>
       {DOCUMENTS.map(({ kind, label, detail }) => (
@@ -299,8 +468,25 @@ export default function DriverVerification({
           </Pressable>
         </View>
       ))}
+      <View style={styles.documentRow}>
+        <View style={styles.documentCopy}>
+          <Text style={styles.documentTitle}>Driver profile photo</Text>
+          <Text style={styles.documentDetail}>
+            {driverPhoto?.name ?? 'A clear face photo. Shared with your accepted rider.'}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose driver profile photo"
+          disabled={busy}
+          onPress={() => void pickDocument('driver_photo')}
+          style={styles.chooseButton}
+        >
+          <Text style={styles.chooseText}>{driverPhoto ? 'Replace' : 'Choose'}</Text>
+        </Pressable>
+      </View>
       <Text style={styles.privacy}>
-        PDF, JPG, or PNG · up to 10 MB each. Do not upload documents belonging to anyone else. Documents are private and are not displayed to riders.
+        Documents are private and only available to you and authorized reviewers. Your driver photo and vehicle details are shown only to the rider on your accepted ride.
       </Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Pressable
@@ -348,6 +534,8 @@ const styles = StyleSheet.create({
   statusCard: { padding: 16, alignItems: 'center', borderWidth: 1, borderColor: COLORS.line, borderRadius: 16, backgroundColor: COLORS.white, gap: 9 },
   statusIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: '#FFF2E5' },
   approvedIcon: { backgroundColor: '#EAF1F7' },
+  profilePhoto: { width: 84, height: 84, alignSelf: 'center', borderRadius: 42, backgroundColor: COLORS.paper },
+  profilePhotoPlaceholder: { width: 84, height: 84, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', borderRadius: 42, backgroundColor: COLORS.lime },
   statusTitle: { color: COLORS.ink, fontSize: 16, fontWeight: '800', textAlign: 'center' },
   reviewNoteBox: { padding: 11, borderRadius: 10, backgroundColor: '#FFF2E5', gap: 4 },
   reviewNoteHeading: { color: COLORS.ink, fontSize: 10, fontWeight: '800' },
