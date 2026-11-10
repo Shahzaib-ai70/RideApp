@@ -10,6 +10,7 @@ import {
 import { divIcon, latLngBounds } from 'leaflet';
 import type { LatLngExpression, LatLngTuple } from 'leaflet';
 import type { RideMapProps } from './ride-map.types';
+import { vehicleSvgDataUri } from './VehicleSilhouette';
 import { loadGoogleMaps } from './google-maps';
 import 'leaflet/dist/leaflet.css';
 import './ride-map.web.css';
@@ -27,19 +28,16 @@ function pinIcon(kind: 'pickup' | 'destination') {
   });
 }
 
-function driverGlyph(vehicle: string) {
-  if (vehicle === 'Bike') return '🏍️';
-  if (vehicle === 'Rickshaw') return '🛺';
-  if (vehicle === 'Premium') return '🚙';
-  return '🚗';
-}
-
 function driverIcon(accepted: boolean, vehicle: string) {
+  const knownVehicle = vehicle === 'Bike' || vehicle === 'Rickshaw' || vehicle === 'Premium'
+    ? vehicle
+    : 'Car';
+  const size = accepted ? 44 : 36;
   return divIcon({
     className: 'sawaari-marker-shell',
-    html: `<span class="sawaari-marker-driver${accepted ? ' sawaari-marker-driver-accepted' : ''}">${driverGlyph(vehicle)}</span>`,
-    iconSize: accepted ? [35, 35] : [27, 27],
-    iconAnchor: accepted ? [17, 17] : [13, 13],
+    html: `<span class="sawaari-marker-driver${accepted ? ' sawaari-marker-driver-accepted' : ''}"><img alt="" src="${vehicleSvgDataUri(knownVehicle)}" /></span>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
@@ -424,14 +422,14 @@ function GoogleRideMap({
         position: { lat: driver.latitude, lng: driver.longitude },
         title: `Nearby ${driver.vehicle}`,
         icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 13,
-          fillColor: '#FFFFFF',
-          fillOpacity: 1,
-          strokeColor: '#537A8A',
-          strokeWeight: 3,
+          url: vehicleSvgDataUri(
+            driver.vehicle === 'Bike' || driver.vehicle === 'Rickshaw' || driver.vehicle === 'Premium'
+              ? driver.vehicle
+              : 'Car',
+          ),
+          scaledSize: new google.maps.Size(34, 48),
+          anchor: new google.maps.Point(17, 24),
         },
-        label: { text: driverGlyph(driver.vehicle), fontSize: '17px' },
       }));
     });
     if (acceptedDriverLocation) {
@@ -443,16 +441,15 @@ function GoogleRideMap({
         },
         title: `${acceptedDriverTitle} · ${acceptedDriverDescription}`,
         icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 17,
-          fillColor: '#FFFFFF',
-          fillOpacity: 1,
-          strokeColor: '#0B786F',
-          strokeWeight: 4,
-        },
-        label: {
-          text: driverGlyph(acceptedDriverVehicle ?? ''),
-          fontSize: '21px',
+          url: vehicleSvgDataUri(
+            acceptedDriverVehicle === 'Bike'
+              || acceptedDriverVehicle === 'Rickshaw'
+              || acceptedDriverVehicle === 'Premium'
+              ? acceptedDriverVehicle
+              : 'Car',
+          ),
+          scaledSize: new google.maps.Size(42, 58),
+          anchor: new google.maps.Point(21, 29),
         },
       }));
     }

@@ -3,6 +3,8 @@ import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import type { RideMapProps } from './ride-map.types';
+import VehicleSilhouette from './VehicleSilhouette';
+import type { VehicleType } from './VehicleSilhouette';
 
 const GREEN = '#0B786F';
 const WHITE = '#FFFFFF';
@@ -65,7 +67,7 @@ export default function RideMap({
           title={`Nearby ${driver.vehicle}`}
         >
           <View style={styles.nearbyMarker}>
-            <Ionicons name={vehicleIcon(driver.vehicle)} size={15} color={WHITE} />
+            <VehicleSilhouette vehicle={vehicleType(driver.vehicle)} width={20} height={30} />
           </View>
         </Marker>
       ))}
@@ -76,7 +78,11 @@ export default function RideMap({
           description={acceptedDriverDescription}
         >
           <View style={styles.liveDriverMarker}>
-            <Ionicons name={vehicleIcon(acceptedDriverVehicle ?? '')} size={19} color={WHITE} />
+            <VehicleSilhouette
+              vehicle={vehicleType(acceptedDriverVehicle ?? '')}
+              width={25}
+              height={36}
+            />
           </View>
         </Marker>
       ) : null}
@@ -84,10 +90,9 @@ export default function RideMap({
   );
 }
 
-function vehicleIcon(vehicle: string): keyof typeof Ionicons.glyphMap {
-  if (vehicle === 'Bike') return 'bicycle';
-  if (vehicle === 'Rickshaw') return 'car-outline';
-  return 'car-sport';
+function vehicleType(vehicle: string): VehicleType {
+  if (vehicle === 'Bike' || vehicle === 'Rickshaw' || vehicle === 'Premium') return vehicle;
+  return 'Car';
 }
 
 const styles = StyleSheet.create({

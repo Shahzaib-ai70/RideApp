@@ -17,6 +17,7 @@ import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
 import type { MapPoint } from './ride-map.types';
 import { useInAppNotice } from './InAppNoticeProvider';
+import VehicleSilhouette from './VehicleSilhouette';
 
 type Vehicle = 'Bike' | 'Rickshaw' | 'Car' | 'Premium';
 type NearbyRequest = {
@@ -951,11 +952,7 @@ export default function DriverScreen() {
         <View accessibilityLiveRegion="polite" style={styles.requestPopup}>
           <View style={styles.requestPopupHeading}>
             <View style={styles.requestPopupIcon}>
-              <Ionicons
-                name={topRequest.vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
-                size={20}
-                color={COLORS.ink}
-              />
+              <VehicleSilhouette vehicle={topRequest.vehicle} width={24} height={34} />
             </View>
             <View style={styles.requestPopupTitleCopy}>
               <Text style={styles.requestPopupEyebrow}>RIDE REQUEST</Text>

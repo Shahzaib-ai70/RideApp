@@ -1,14 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
+import VehicleSilhouette from './VehicleSilhouette';
+import type { VehicleType } from './VehicleSilhouette';
 
-export type VehicleType = 'Bike' | 'Rickshaw' | 'Car' | 'Premium';
-
-const VEHICLE_ICONS: Record<VehicleType, keyof typeof Ionicons.glyphMap> = {
-  Bike: 'bicycle',
-  Rickshaw: 'car-outline',
-  Car: 'car-sport',
-  Premium: 'car-sport',
-};
+export type { VehicleType };
 
 export default function VehicleArt({
   vehicle,
@@ -20,7 +15,6 @@ export default function VehicleArt({
   size?: number;
 }) {
   const plateColor = selected ? '#0B786F' : '#E5F3EF';
-  const iconColor = selected ? '#FFFFFF' : '#266B69';
 
   return (
     <View
@@ -42,7 +36,11 @@ export default function VehicleArt({
         ]}
       >
         <View style={[styles.highlight, selected && styles.selectedHighlight]} />
-        <Ionicons name={VEHICLE_ICONS[vehicle]} size={size * 0.53} color={iconColor} />
+        <VehicleSilhouette
+          vehicle={vehicle}
+          width={size * 0.46}
+          height={size * 0.68}
+        />
         {vehicle === 'Premium' ? (
           <View style={styles.premiumBadge}>
             <Ionicons name="sparkles" size={size * 0.18} color="#FFFFFF" />
