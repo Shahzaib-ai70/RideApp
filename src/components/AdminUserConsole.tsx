@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -33,6 +34,8 @@ type UserRecord = {
   email_verified_at: string | null;
   created_at: string;
   driver_status: string | null;
+  current_restriction_until: string | null;
+  current_restriction_reason: string | null;
 };
 
 type UserRideHistory = {
@@ -115,7 +118,12 @@ function isUserRecord(value: unknown): value is UserRecord {
     && typeof value.display_name === 'string'
     && (value.email_verified_at === null || typeof value.email_verified_at === 'string')
     && typeof value.created_at === 'string'
-    && (value.driver_status === null || typeof value.driver_status === 'string');
+    && (value.driver_status === null || typeof value.driver_status === 'string')
+    && (value.current_restriction_until === null
+      || (typeof value.current_restriction_until === 'string'
+        && Number.isFinite(Date.parse(value.current_restriction_until))))
+    && (value.current_restriction_reason === null
+      || typeof value.current_restriction_reason === 'string');
 }
 
 function driverLabel(status: string | null) {
@@ -150,6 +158,11 @@ export default function AdminUserConsole({
   const [historyError, setHistoryError] = useState('');
   const [mapRideId, setMapRideId] = useState<string | null>(null);
   const historyRequestVersion = useRef(0);
+  const [profileUser, setProfileUser] = useState<UserRecord | null>(null);
+  const [restrictionDuration, setRestrictionDuration] = useState('24');
+  const [restrictionReason, setRestrictionReason] = useState('');
+  const [restrictionBusy, setRestrictionBusy] = useState(false);
+  const [restrictionError, setRestrictionError] = useState('');
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -192,16 +205,7 @@ export default function AdminUserConsole({
     setMapRideId(null);
   };
 
-  const toggleHistory = async (user: UserRecord, forceReload = false) => {
-    if (historyUserId === user.user_id && !forceReload) {
-      historyRequestVersion.current += 1;
-      setHistoryUserId(null);
-      setHistory([]);
-      setHistoryError('');
-      setMapRideId(null);
-      return;
-    }
-
+  const loadUserHistory = async (user: UserRecord) => {
     const requestVersion = ++historyRequestVersion.current;
     setHistoryUserId(user.user_id);
     setHistory([]);
@@ -223,6 +227,98 @@ export default function AdminUserConsole({
       }
     } finally {
       if (historyRequestVersion.current === requestVersion) setHistoryLoading(false);
+    }
+  };
+
+  const openProfile = (user: UserRecord) => {
+    setProfileUser(user);
+    setRestrictionDuration('24');
+    setRestrictionReason(user.current_restriction_reason ?? '');
+    setRestrictionError('');
+    void loadUserHistory(user);
+  };
+
+  const closeProfile = () => {
+    historyRequestVersion.current += 1;
+    setProfileUser(null);
+    setHistoryUserId(null);
+    setHistory([]);
+    setHistoryError('');
+    setMapRideId(null);
+    setRestrictionError('');
+  };
+
+  const applyRestriction = async (permanent: boolean) => {
+    if (!profileUser) return;
+    const durationHours = Number(restrictionDuration);
+    const reason = restrictionReason.trim();
+    if (reason.length < 5 || reason.length > 500) {
+      setRestrictionError('Enter a short reason between 5 and 500 characters.');
+      return;
+    }
+    if (!permanent && (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 720)) {
+      setRestrictionError('Enter a restriction from 1 to 720 hours.');
+      return;
+    }
+    setRestrictionBusy(true);
+    setRestrictionError('');
+    try {
+      const result = await adminApi<{
+        success: boolean;
+        restricted_until: string | null;
+      }>(`/api/admin/users/${encodeURIComponent(profileUser.user_id)}/restriction`, {
+        method: 'POST',
+        body: JSON.stringify({
+          permanent,
+          ...(permanent ? {} : { duration_hours: durationHours }),
+          reason,
+        }),
+      });
+      if (!result.success
+        || (result.restricted_until !== null && !Number.isFinite(Date.parse(result.restricted_until)))) {
+        throw new Error('The server did not confirm the account restriction.');
+      }
+      const updatedUser = {
+        ...profileUser,
+        current_restriction_until: result.restricted_until,
+        current_restriction_reason: reason,
+      };
+      setProfileUser(updatedUser);
+      setUsers((current) => current.map((user) => (
+        user.user_id === updatedUser.user_id ? updatedUser : user
+      )));
+      setRestrictionError('');
+    } catch (error: unknown) {
+      setRestrictionError(error instanceof Error ? error.message : 'Could not restrict this account.');
+    } finally {
+      setRestrictionBusy(false);
+    }
+  };
+
+  const liftRestriction = async () => {
+    if (!profileUser) return;
+    setRestrictionBusy(true);
+    setRestrictionError('');
+    try {
+      const result = await adminApi<{ success: boolean }>(
+        `/api/admin/users/${encodeURIComponent(profileUser.user_id)}/restriction`,
+        { method: 'DELETE' },
+      );
+      if (!result.success) throw new Error('The server did not confirm the restriction was lifted.');
+      const updatedUser = {
+        ...profileUser,
+        current_restriction_until: null,
+        current_restriction_reason: null,
+      };
+      setProfileUser(updatedUser);
+      setUsers((current) => current.map((user) => (
+        user.user_id === updatedUser.user_id ? updatedUser : user
+      )));
+      setRestrictionReason('');
+    } catch (error: unknown) {
+      setRestrictionError(error instanceof Error ? error.message : 'Could not lift this restriction.');
+    } finally {
+      setRestrictionBusy(false);
     }
   };
 
@@ -343,6 +439,7 @@ export default function AdminUserConsole({
   };
 
   return (
+    <>
     <ScrollView
       contentContainerStyle={styles.screen}
       refreshControl={
@@ -427,7 +524,13 @@ export default function AdminUserConsole({
 
         <View style={styles.userList}>
           {users.map((user) => (
-            <View key={user.user_id} style={styles.userCard}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open profile and ride history for ${user.display_name || user.email}`}
+              key={user.user_id}
+              onPress={() => openProfile(user)}
+              style={styles.userCard}
+            >
               <View style={styles.userCardTop}>
                 <View style={styles.avatar}>
                   <Ionicons name="person-outline" size={18} color={COLORS.green} />
@@ -441,74 +544,28 @@ export default function AdminUserConsole({
                     {user.email_verified_at ? 'Email verified' : 'Email not verified'}
                   </Text>
                 </View>
-                <View style={[styles.statusBadge, user.driver_status && styles.driverBadge]}>
-                  <Text style={[styles.statusText, user.driver_status && styles.driverStatusText]}>
-                    {driverLabel(user.driver_status)}
+                <View style={[
+                  styles.statusBadge,
+                  user.current_restriction_reason
+                    ? styles.restrictedBadge
+                    : user.driver_status && styles.driverBadge,
+                ]}>
+                  <Text style={[
+                    styles.statusText,
+                    user.current_restriction_reason
+                      ? styles.restrictedStatusText
+                      : user.driver_status && styles.driverStatusText,
+                  ]}>
+                    {user.current_restriction_reason ? 'Restricted' : driverLabel(user.driver_status)}
                   </Text>
                 </View>
               </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${historyUserId === user.user_id ? 'Hide' : 'View'} ride history for ${user.display_name || user.email}`}
-                onPress={() => void toggleHistory(user)}
-                style={styles.historyToggle}
-              >
+              <View style={styles.historyToggle}>
                 <Ionicons name="time-outline" size={15} color={COLORS.green} />
-                <Text style={styles.historyToggleText}>
-                  {historyUserId === user.user_id ? 'Hide ride history' : 'View ride history'}
-                </Text>
-                {historyUserId === user.user_id
-                  ? <Ionicons name="chevron-up" size={15} color={COLORS.green} />
-                  : <Ionicons name="chevron-down" size={15} color={COLORS.green} />}
-              </Pressable>
-              {historyUserId === user.user_id ? (
-                <View style={styles.historyPanel}>
-                  <View style={styles.historyHeading}>
-                    <Text style={styles.historyTitle}>Ride history for {user.display_name || 'this account'}</Text>
-                    {!historyLoading
-                      ? <Text style={styles.historyCount}>{historyTotal} rides</Text>
-                      : null}
-                  </View>
-                  {historyLoading ? (
-                    <View style={styles.historyMessage}>
-                      <ActivityIndicator color={COLORS.green} />
-                      <Text style={styles.emptyText}>Loading this account’s ride history…</Text>
-                    </View>
-                  ) : null}
-                  {historyError ? (
-                    <View style={styles.historyError}>
-                      <Ionicons name="warning-outline" size={16} color={COLORS.red} />
-                      <Text style={styles.errorText}>{historyError}</Text>
-                      <Pressable onPress={() => void toggleHistory(user, true)}>
-                        <Text style={styles.retryText}>Retry</Text>
-                      </Pressable>
-                    </View>
-                  ) : null}
-                  {!historyLoading && !historyError && history.length === 0 ? (
-                    <View style={styles.historyMessage}>
-                      <Ionicons name="time-outline" size={19} color={COLORS.muted} />
-                      <Text style={styles.emptyText}>No rides found for this account.</Text>
-                    </View>
-                  ) : null}
-                  {history.map(renderHistoryRide)}
-                  {history.length < historyTotal ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={historyLoadingMore}
-                      onPress={() => void loadMoreHistory()}
-                      style={[styles.loadMoreButton, historyLoadingMore && styles.historyDisabledButton]}
-                    >
-                      {historyLoadingMore
-                        ? <ActivityIndicator size="small" color={COLORS.green} />
-                        : <Ionicons name="add-circle-outline" size={16} color={COLORS.green} />}
-                      <Text style={styles.loadMoreText}>
-                        {historyLoadingMore ? 'Loading more…' : `Load more (${history.length} of ${historyTotal})`}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
+                <Text style={styles.historyToggleText}>Open profile, ride history & safety controls</Text>
+                <Ionicons name="chevron-forward" size={15} color={COLORS.green} />
+              </View>
+            </Pressable>
           ))}
         </View>
 
@@ -518,8 +575,7 @@ export default function AdminUserConsole({
               accessibilityRole="button"
               disabled={offset === 0}
               onPress={() => {
-                setHistoryUserId(null);
-                setHistory([]);
+                closeProfile();
                 setOffset((current) => Math.max(0, current - PAGE_SIZE));
               }}
               style={[styles.pageButton, offset === 0 && styles.disabledButton]}
@@ -532,8 +588,7 @@ export default function AdminUserConsole({
               accessibilityRole="button"
               disabled={offset + PAGE_SIZE >= total}
               onPress={() => {
-                setHistoryUserId(null);
-                setHistory([]);
+                closeProfile();
                 setOffset((current) => current + PAGE_SIZE);
               }}
               style={[styles.pageButton, offset + PAGE_SIZE >= total && styles.disabledButton]}
@@ -545,10 +600,199 @@ export default function AdminUserConsole({
         ) : null}
       </View>
     </ScrollView>
+    <Modal
+      animationType="fade"
+      onRequestClose={() => {
+        if (!restrictionBusy) closeProfile();
+      }}
+      transparent
+      visible={Boolean(profileUser)}
+    >
+      <View style={styles.modalBackdrop}>
+        <View style={styles.profileModal}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalHeadingCopy}>
+              <Text style={styles.modalTitle}>{profileUser?.display_name || 'User profile'}</Text>
+              <Text selectable style={styles.email}>{profileUser?.email}</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              disabled={restrictionBusy}
+              accessibilityLabel="Close user profile"
+              onPress={closeProfile}
+              style={[styles.modalClose, restrictionBusy && styles.historyDisabledButton]}
+            >
+              <Ionicons name="close" size={20} color={COLORS.ink} />
+            </Pressable>
+          </View>
+          {profileUser ? (
+            <ScrollView contentContainerStyle={styles.modalScrollContent}>
+              <View style={styles.profileSummary}>
+                <Text style={styles.profileSummaryText}>
+                  {driverLabel(profileUser.driver_status)} · Joined {new Date(profileUser.created_at).toLocaleDateString()}
+                  {' · '}{profileUser.email_verified_at ? 'Email verified' : 'Email not verified'}
+                </Text>
+              </View>
+              <View style={styles.restrictionPanel}>
+                <View style={styles.historyHeading}>
+                  <Text style={styles.historyTitle}>Account access restriction</Text>
+                  {profileUser.current_restriction_reason ? (
+                    <View style={styles.restrictedBadge}>
+                      <Text style={styles.restrictedStatusText}>ACTIVE</Text>
+                    </View>
+                  ) : null}
+                </View>
+                {profileUser.current_restriction_reason ? (
+                  <>
+                    <Text style={styles.restrictionReason}>
+                      {profileUser.current_restriction_reason}
+                    </Text>
+                    <Text style={styles.historyMeta}>
+                      {profileUser.current_restriction_until
+                        ? `Ends ${new Date(profileUser.current_restriction_until).toLocaleString()}`
+                        : 'Permanent restriction'}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={restrictionBusy}
+                      onPress={() => void liftRestriction()}
+                      style={[styles.liftRestrictionButton, restrictionBusy && styles.historyDisabledButton]}
+                    >
+                      {restrictionBusy
+                        ? <ActivityIndicator size="small" color={COLORS.green} />
+                        : <Ionicons name="lock-open-outline" size={15} color={COLORS.green} />}
+                      <Text style={styles.liftRestrictionText}>Lift restriction</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <Text style={styles.historyMeta}>
+                    Restriction prevents new ride bookings and driving. Sign-in and history remain available.
+                  </Text>
+                )}
+                <Text style={styles.restrictionLabel}>Reason for restriction</Text>
+                <TextInput
+                  accessibilityLabel="Reason for account restriction"
+                  editable={!restrictionBusy}
+                  maxLength={500}
+                  onChangeText={setRestrictionReason}
+                  placeholder="Briefly explain the report or safety concern"
+                  style={styles.restrictionInput}
+                  value={restrictionReason}
+                />
+                <View style={styles.restrictionDurationRow}>
+                  <View style={styles.restrictionDurationCopy}>
+                    <Text style={styles.restrictionLabel}>Duration in hours (1–720)</Text>
+                    <TextInput
+                      accessibilityLabel="Restriction duration in hours"
+                      editable={!restrictionBusy}
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      onChangeText={setRestrictionDuration}
+                      style={styles.durationInput}
+                      value={restrictionDuration}
+                    />
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={restrictionBusy}
+                    onPress={() => void applyRestriction(false)}
+                    style={[styles.restrictButton, restrictionBusy && styles.historyDisabledButton]}
+                  >
+                    {restrictionBusy
+                      ? <ActivityIndicator size="small" color={COLORS.white} />
+                      : <Ionicons name="time-outline" size={15} color={COLORS.white} />}
+                    <Text style={styles.restrictButtonText}>Restrict temporarily</Text>
+                  </Pressable>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={restrictionBusy}
+                  onPress={() => void applyRestriction(true)}
+                  style={[styles.blockButton, restrictionBusy && styles.historyDisabledButton]}
+                >
+                  <Ionicons name="ban-outline" size={15} color={COLORS.white} />
+                  <Text style={styles.restrictButtonText}>Block account permanently</Text>
+                </Pressable>
+                {restrictionError ? <Text style={styles.errorText}>{restrictionError}</Text> : null}
+              </View>
+              <View style={styles.historyPanel}>
+                <View style={styles.historyHeading}>
+                  <Text style={styles.historyTitle}>Ride history</Text>
+                  {!historyLoading
+                    ? <Text style={styles.historyCount}>{historyTotal} rides</Text>
+                    : null}
+                </View>
+                {historyLoading ? (
+                  <View style={styles.historyMessage}>
+                    <ActivityIndicator color={COLORS.green} />
+                    <Text style={styles.emptyText}>Loading ride history…</Text>
+                  </View>
+                ) : null}
+                {historyError ? (
+                  <View style={styles.historyError}>
+                    <Ionicons name="warning-outline" size={16} color={COLORS.red} />
+                    <Text style={styles.errorText}>{historyError}</Text>
+                    <Pressable onPress={() => void loadUserHistory(profileUser)}>
+                      <Text style={styles.retryText}>Retry</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+                {!historyLoading && !historyError && history.length === 0 ? (
+                  <View style={styles.historyMessage}>
+                    <Ionicons name="time-outline" size={19} color={COLORS.muted} />
+                    <Text style={styles.emptyText}>No rides found for this account.</Text>
+                  </View>
+                ) : null}
+                {history.map(renderHistoryRide)}
+                {history.length < historyTotal ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={historyLoadingMore}
+                    onPress={() => void loadMoreHistory()}
+                    style={[styles.loadMoreButton, historyLoadingMore && styles.historyDisabledButton]}
+                  >
+                    {historyLoadingMore
+                      ? <ActivityIndicator size="small" color={COLORS.green} />
+                      : <Ionicons name="add-circle-outline" size={16} color={COLORS.green} />}
+                    <Text style={styles.loadMoreText}>
+                      {historyLoadingMore ? 'Loading more…' : `Load more (${history.length} of ${historyTotal})`}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </ScrollView>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  modalBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 14, backgroundColor: 'rgba(10, 28, 35, 0.62)' },
+  profileModal: { width: '100%', maxWidth: 720, maxHeight: '92%', overflow: 'hidden', borderRadius: 18, backgroundColor: COLORS.paper },
+  modalHeader: { minHeight: 68, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 17, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: COLORS.line, backgroundColor: COLORS.white },
+  modalHeadingCopy: { minWidth: 0, flex: 1, gap: 4 },
+  modalTitle: { color: COLORS.ink, fontSize: 17, fontWeight: '900' },
+  modalClose: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: '#EFF4F2' },
+  modalScrollContent: { gap: 12, padding: 15 },
+  profileSummary: { padding: 12, borderWidth: 1, borderColor: COLORS.line, borderRadius: 11, backgroundColor: COLORS.white },
+  profileSummaryText: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  restrictionPanel: { gap: 10, padding: 13, borderWidth: 1, borderColor: COLORS.line, borderRadius: 13, backgroundColor: COLORS.white },
+  restrictedBadge: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 20, backgroundColor: '#FBE9E8' },
+  restrictedStatusText: { color: COLORS.red, fontSize: 8, fontWeight: '900' },
+  restrictionReason: { color: COLORS.ink, fontSize: 11, lineHeight: 16 },
+  restrictionLabel: { color: COLORS.ink, fontSize: 10, fontWeight: '800' },
+  restrictionInput: { minHeight: 42, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: COLORS.line, borderRadius: 9, color: COLORS.ink, fontSize: 11 },
+  restrictionDurationRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
+  restrictionDurationCopy: { width: 112, gap: 6 },
+  durationInput: { minHeight: 40, paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 9, color: COLORS.ink, fontSize: 12 },
+  restrictButton: { minHeight: 42, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 9, backgroundColor: COLORS.green },
+  restrictButtonText: { color: COLORS.white, fontSize: 10, fontWeight: '900', textAlign: 'center' },
+  blockButton: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 9, backgroundColor: COLORS.red },
+  liftRestrictionButton: { minHeight: 38, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 9, backgroundColor: '#EFF7F3' },
+  liftRestrictionText: { color: COLORS.green, fontSize: 10, fontWeight: '900' },
   screen: { padding: 18, paddingBottom: 42, backgroundColor: COLORS.paper, flexGrow: 1 },
   content: { width: '100%', maxWidth: 1120, alignSelf: 'center', gap: 18 },
   topBar: { minHeight: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },

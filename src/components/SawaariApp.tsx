@@ -63,6 +63,7 @@ type NearbyDriver = NearbyMapDriver & {
 };
 type RideServerStatus = {
   status: string;
+  rider_report_status?: 'open' | 'reviewing' | 'resolved' | 'dismissed' | null;
   agreed_fare: number | null;
   driver_name: string;
   driver_vehicle: string;
@@ -256,6 +257,11 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [updatingRideOffer, setUpdatingRideOffer] = useState(false);
   const [respondingToOffer, setRespondingToOffer] = useState(false);
   const [submittingRating, setSubmittingRating] = useState<string | null>(null);
+  const [reportingRideId, setReportingRideId] = useState<string | null>(null);
+  const [reportCategory, setReportCategory] = useState<'safety' | 'behavior' | 'vehicle' | 'fare' | 'other'>('safety');
+  const [reportDetails, setReportDetails] = useState('');
+  const [submittingReport, setSubmittingReport] = useState<string | null>(null);
+  const [reportError, setReportError] = useState('');
   const [locationGranted, setLocationGranted] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [locationPromptVisible, setLocationPromptVisible] = useState(false);
@@ -354,6 +360,12 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                 : null;
               statusResults[ride.id] = {
                 status: status.status,
+                rider_report_status: status.rider_report_status === 'open'
+                  || status.rider_report_status === 'reviewing'
+                  || status.rider_report_status === 'resolved'
+                  || status.rider_report_status === 'dismissed'
+                  ? status.rider_report_status
+                  : null,
                 agreed_fare: typeof status.agreed_fare === 'number' && Number.isFinite(status.agreed_fare)
                   ? status.agreed_fare
                   : null,
@@ -999,6 +1011,132 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     } finally {
       setSubmittingRating(null);
     }
+  };
+
+  const submitRideReport = async (rideId: string) => {
+    if (reportDetails.trim().length < 10) {
+      setReportError('Please describe what happened in at least 10 characters.');
+      return;
+    }
+    setSubmittingReport(rideId);
+    setReportError('');
+    try {
+      await apiRequest<{ success: boolean; status: 'open' }>(
+        `/rides/${encodeURIComponent(rideId)}/report`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ category: reportCategory, details: reportDetails.trim() }),
+        },
+      );
+      setRideStatuses((current) => ({
+        ...current,
+        [rideId]: { ...current[rideId], rider_report_status: 'open' },
+      }));
+      setReportingRideId(null);
+      setReportDetails('');
+      showMessage('Report sent for review', 'Our support team will review your report.');
+    } catch (error: unknown) {
+      setReportError(error instanceof Error ? error.message : 'Could not submit your report. Please try again.');
+    } finally {
+      setSubmittingReport(null);
+    }
+  };
+
+  const renderRideReport = (rideId: string) => {
+    const reportStatus = rideStatuses[rideId]?.rider_report_status;
+    if (reportStatus) {
+      return (
+        <View style={styles.reportSubmitted}>
+          <Ionicons name="shield-checkmark-outline" size={16} color={COLORS.green} />
+          <Text style={styles.reportSubmittedText}>
+            Report submitted · {reportStatus === 'open' || reportStatus === 'reviewing'
+              ? 'Under review'
+              : reportStatus === 'resolved' ? 'Reviewed' : 'Closed'}
+          </Text>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.rideReport}>
+        {reportingRideId !== rideId ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setReportingRideId(rideId);
+              setReportError('');
+            }}
+            style={styles.reportOpenButton}
+          >
+            <Ionicons name="flag-outline" size={15} color={COLORS.red} />
+            <Text style={styles.reportOpenText}>Report a problem with this ride</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.reportForm}>
+            <View style={styles.reportFormTitleRow}>
+              <Text style={styles.rateDriverPrompt}>Report this driver or ride</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close report form"
+                disabled={submittingReport === rideId}
+                onPress={() => {
+                  setReportingRideId(null);
+                  setReportError('');
+                }}
+              >
+                <Ionicons name="close-circle-outline" size={20} color={COLORS.muted} />
+              </Pressable>
+            </View>
+            <View style={styles.reportCategoryList}>
+              {([
+                ['safety', 'Safety'],
+                ['behavior', 'Behavior'],
+                ['vehicle', 'Vehicle'],
+                ['fare', 'Fare'],
+                ['other', 'Other'],
+              ] as const).map(([category, label]) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: reportCategory === category }}
+                  key={category}
+                  onPress={() => setReportCategory(category)}
+                  style={[styles.reportCategory, reportCategory === category && styles.reportCategorySelected]}
+                >
+                  <Text style={[
+                    styles.reportCategoryText,
+                    reportCategory === category && styles.reportCategoryTextSelected,
+                  ]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              accessibilityLabel="Describe the ride problem"
+              editable={submittingReport !== rideId}
+              multiline
+              onChangeText={setReportDetails}
+              placeholder="Tell us what happened. Reports are reviewed by Sawaari operations."
+              style={styles.reportDetailsInput}
+              textAlignVertical="top"
+              value={reportDetails}
+              maxLength={1500}
+            />
+            {reportError ? <Text style={styles.reportError}>{reportError}</Text> : null}
+            <Pressable
+              accessibilityRole="button"
+              disabled={submittingReport === rideId}
+              onPress={() => void submitRideReport(rideId)}
+              style={[styles.reportSubmitButton, submittingReport === rideId && styles.reportButtonDisabled]}
+            >
+              {submittingReport === rideId
+                ? <ActivityIndicator size="small" color={COLORS.white} />
+                : <Ionicons name="send-outline" size={15} color={COLORS.white} />}
+              <Text style={styles.reportSubmitText}>
+                {submittingReport === rideId ? 'Sending report…' : 'Submit report'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+    );
   };
 
   const cancelRide = (ride: Ride) => {
@@ -2020,6 +2158,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                       ? 'Live driver location · updates while the driver app is open and location is enabled.'
                       : 'Waiting for a fresh driver location. Updates require the driver app to stay open with location enabled.'}
                   </Text>
+                  {renderRideReport(ride.id)}
                 </View>
               ) : ride.cloud && rideStatuses[ride.id]?.status === 'completed' ? (
                 <View style={styles.completedRideCard}>
@@ -2054,6 +2193,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                       </View>
                     </>
                   )}
+                  {renderRideReport(ride.id)}
                 </View>
               ) : ride.cloud && rideStatuses[ride.id]?.status === 'cancelled' ? (
                 <Text style={styles.noDrivers}>This request was cancelled.</Text>
@@ -2899,6 +3039,23 @@ const styles = StyleSheet.create({
   rateDriverStars: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   rateDriverStarButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
   ratingThanksRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  rideReport: { marginTop: 6 },
+  reportOpenButton: { alignSelf: 'flex-start', minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 9, backgroundColor: '#FBE9E8' },
+  reportOpenText: { color: COLORS.red, fontSize: 10, fontWeight: '800' },
+  reportForm: { gap: 9, padding: 11, borderWidth: 1, borderColor: '#E8C7C4', borderRadius: 11, backgroundColor: '#FFF9F8' },
+  reportFormTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  reportCategoryList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  reportCategory: { minHeight: 32, justifyContent: 'center', paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 18, backgroundColor: COLORS.white },
+  reportCategorySelected: { borderColor: COLORS.red, backgroundColor: '#FBE9E8' },
+  reportCategoryText: { color: COLORS.muted, fontSize: 9, fontWeight: '700' },
+  reportCategoryTextSelected: { color: COLORS.red, fontWeight: '900' },
+  reportDetailsInput: { minHeight: 92, padding: 10, borderWidth: 1, borderColor: COLORS.line, borderRadius: 9, backgroundColor: COLORS.white, color: COLORS.ink, fontSize: 11, lineHeight: 16 },
+  reportError: { color: COLORS.red, fontSize: 10 },
+  reportSubmitButton: { alignSelf: 'flex-start', minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, borderRadius: 9, backgroundColor: COLORS.red },
+  reportSubmitText: { color: COLORS.white, fontSize: 10, fontWeight: '900' },
+  reportButtonDisabled: { opacity: 0.6 },
+  reportSubmitted: { flexDirection: 'row', alignItems: 'center', gap: 7, padding: 9, borderRadius: 9, backgroundColor: '#E8F4EA' },
+  reportSubmittedText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
   driverOfferPopupLayer: {
     position: 'absolute',
     top: 0,

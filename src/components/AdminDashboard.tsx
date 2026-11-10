@@ -34,6 +34,7 @@ type Summary = {
   searchingRides: number;
   activeRides: number;
   completedToday: number;
+  openReports: number;
 };
 
 type LiveDriver = {
@@ -80,6 +81,7 @@ const EMPTY_SUMMARY: Summary = {
   searchingRides: 0,
   activeRides: 0,
   completedToday: 0,
+  openReports: 0,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -161,10 +163,12 @@ function rideLocation(ride: AdminRide): MapPoint | null {
 export default function AdminDashboard({
   onClose,
   onOpenReviews,
+  onOpenReports,
   onOpenUsers,
 }: {
   onClose: () => void;
   onOpenReviews: () => void;
+  onOpenReports: () => void;
   onOpenUsers: (search?: string) => void;
 }) {
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
@@ -203,6 +207,7 @@ export default function AdminDashboard({
         row.searching_rides,
         row.active_rides,
         row.completed_today,
+        row.open_reports,
       ].map(parseCount);
       if (counts.some((count) => count === null)) {
         throw new Error('The server returned invalid admin dashboard counts.');
@@ -223,6 +228,7 @@ export default function AdminDashboard({
         searchingRides: counts[4] ?? 0,
         activeRides: counts[5] ?? 0,
         completedToday: counts[6] ?? 0,
+        openReports: counts[7] ?? 0,
       });
       setDrivers(data.drivers);
       setRides(data.rides);
@@ -484,6 +490,19 @@ export default function AdminDashboard({
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.green} />
         </Pressable>
+        <Pressable accessibilityRole="button" onPress={onOpenReports} style={styles.reportButton}>
+          <View style={styles.reportIcon}>
+            <Ionicons name="alert-circle-outline" size={20} color={COLORS.red} />
+          </View>
+          <View style={styles.reviewCopy}>
+            <Text style={styles.reviewButtonText}>Rider safety reports</Text>
+            <Text style={styles.reviewSubtitle}>Review reports and take account action</Text>
+          </View>
+          <View style={styles.reviewCount}>
+            <Text style={styles.reportCountText}>{loading ? '—' : summary.openReports}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.green} />
+        </Pressable>
         <Pressable accessibilityRole="button" onPress={() => onOpenUsers()} style={styles.usersButton}>
           <View style={styles.usersIcon}>
             <Ionicons name="people-outline" size={20} color={COLORS.green} />
@@ -617,14 +636,17 @@ const styles = StyleSheet.create({
   updatedText: { color: '#D5E6DA', fontSize: 9 },
   heroHint: { marginLeft: 'auto', color: '#B5C9BE', fontSize: 9 },
   reviewButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: '#DDE8D6', borderRadius: 15, backgroundColor: '#F0F6E9' },
+  reportButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: '#F0D8D6', borderRadius: 15, backgroundColor: '#FFF8F7' },
   usersButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: COLORS.line, borderRadius: 15, backgroundColor: COLORS.white },
   reviewIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: COLORS.lime },
   usersIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#E8F0E4' },
+  reportIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#FBE9E8' },
   reviewCopy: { flex: 1, gap: 4 },
   reviewButtonText: { color: COLORS.green, fontSize: 13, fontWeight: '900' },
   reviewSubtitle: { color: COLORS.muted, fontSize: 10 },
   reviewCount: { minWidth: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: COLORS.white },
   reviewCountText: { color: COLORS.green, fontSize: 14, fontWeight: '900' },
+  reportCountText: { color: COLORS.red, fontSize: 14, fontWeight: '900' },
   errorCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 13, backgroundColor: '#FBE9E8' },
   errorIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 11, backgroundColor: COLORS.white },
   errorCopy: { flex: 1, gap: 3 },

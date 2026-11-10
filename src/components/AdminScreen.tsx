@@ -12,6 +12,7 @@ import { Text, TextInput } from './AppText';
 import AdminDashboard from './AdminDashboard';
 import DriverReviewConsole from './DriverReviewConsole';
 import AdminUserConsole from './AdminUserConsole';
+import AdminReportConsole from './AdminReportConsole';
 import { adminApi } from '../lib/adminApi';
 import { withTimeout } from '../lib/withTimeout';
 
@@ -33,6 +34,7 @@ export default function AdminScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  const [showReports, setShowReports] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -206,6 +208,18 @@ export default function AdminScreen() {
   if (showUsers) {
     return <AdminUserConsole onClose={() => setShowUsers(false)} initialSearch={userSearch} />;
   }
+  if (showReports) {
+    return (
+      <AdminReportConsole
+        onClose={() => setShowReports(false)}
+        onOpenUser={(email) => {
+          setShowReports(false);
+          setUserSearch(email);
+          setShowUsers(true);
+        }}
+      />
+    );
+  }
 
   return (
     <AdminDashboard
@@ -213,6 +227,7 @@ export default function AdminScreen() {
         void signOut().then(() => router.replace('/'));
       }}
       onOpenReviews={() => setShowReviews(true)}
+      onOpenReports={() => setShowReports(true)}
       onOpenUsers={(search = '') => {
         setUserSearch(search);
         setShowUsers(true);

@@ -210,6 +210,31 @@ async function requireUser(request) {
   return user;
 }
 
+async function ensureAccountCanUseServices(userId, database = pool) {
+  const result = await database.query(
+    `select reason, restricted_until from account_restrictions
+     where user_id=$1 and lifted_at is null
+       and (restricted_until is null or restricted_until > now())
+     order by created_at desc limit 1`,
+    [userId],
+  );
+  if (!result.rowCount) return;
+  const restriction = result.rows[0];
+  const expiry = restriction.restricted_until
+    ? ` until ${new Date(restriction.restricted_until).toLocaleString()}`
+    : ' permanently';
+  throw fail(`Account activity is restricted${expiry}. Reason: ${restriction.reason}`, 403);
+}
+
+async function lockAndEnsureAccountCanUseServices(client, userId) {
+  const account = await client.query(
+    'select id from app_users where id=$1 for update',
+    [userId],
+  );
+  if (!account.rowCount) throw fail('User account not found.', 404);
+  await ensureAccountCanUseServices(userId, client);
+}
+
 function publicUser(user) {
   return { id: user.id, email: user.email, display_name: user.display_name };
 }
@@ -557,7 +582,8 @@ async function adminDashboard() {
           where dp.is_online and dp.updated_at > now() - interval '90 seconds' and da.status = 'approved') as online_drivers,
         (select count(*)::int from ride_requests where status = 'searching') as searching_rides,
         (select count(*)::int from ride_requests where status = 'accepted') as active_rides,
-        (select count(*)::int from ride_requests where status = 'completed' and updated_at >= date_trunc('day', now())) as completed_today`,
+        (select count(*)::int from ride_requests where status = 'completed' and updated_at >= date_trunc('day', now())) as completed_today,
+        (select count(*)::int from ride_reports where status in ('open', 'reviewing')) as open_reports`,
     ),
     pool.query(
       `select dp.user_id as driver_id, u.display_name as driver_name, u.email as driver_email, dp.vehicle,
@@ -832,9 +858,18 @@ async function route(request, response, url) {
         ),
         pool.query(
           `select u.id as user_id, u.email, u.display_name, u.email_verified_at, u.created_at,
-                  da.status as driver_status
+                  da.status as driver_status,
+                  restriction.restricted_until as current_restriction_until,
+                  restriction.reason as current_restriction_reason
            from app_users u
            left join driver_applications da on da.user_id = u.id
+           left join lateral (
+             select restricted_until, reason
+             from account_restrictions ar
+             where ar.user_id=u.id and ar.lifted_at is null
+               and (ar.restricted_until is null or ar.restricted_until > now())
+             order by ar.created_at desc limit 1
+           ) restriction on true
            where $1::text is null or u.email ilike $1 escape '\\' or u.display_name ilike $1 escape '\\'
            order by u.created_at desc, u.id
            limit $2 offset $3`,
@@ -847,6 +882,146 @@ async function route(request, response, url) {
         limit: requestedLimit,
         offset: requestedOffset,
       });
+      return;
+    }
+    const userRestrictionMatch = pathname.match(
+      /^\/api\/admin\/users\/([0-9a-f-]{36})\/restriction$/i,
+    );
+    if (method === 'POST' && userRestrictionMatch) {
+      const body = await readJson(request);
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      const permanent = body.permanent === true;
+      const durationHours = Number(body.duration_hours);
+      if (reason.length < 5 || reason.length > 500
+        || (permanent && body.duration_hours !== undefined)
+        || (!permanent && (!Number.isInteger(durationHours) || durationHours < 1 || durationHours > 720))) {
+        throw fail('Provide a reason and a valid restriction duration (1–720 hours), or choose a permanent block.');
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const account = await client.query(
+          'select id from app_users where id=$1 for update',
+          [userRestrictionMatch[1]],
+        );
+        if (!account.rowCount) throw fail('User account not found.', 404);
+        await client.query(
+          `update account_restrictions
+           set lifted_at=now(), lifted_by=$2
+           where user_id=$1 and lifted_at is null`,
+          [userRestrictionMatch[1], config.adminUsername],
+        );
+        const restriction = await client.query(
+          `insert into account_restrictions
+            (user_id, restricted_until, reason, created_by)
+           values (
+             $1,
+             case when $2::boolean then null else now() + ($3::integer * interval '1 hour') end,
+             $4, $5
+           )
+           returning restricted_until, created_at`,
+          [userRestrictionMatch[1], permanent, permanent ? null : durationHours,
+            reason, config.adminUsername],
+        );
+        await client.query(
+          'update driver_presence set is_online=false, updated_at=now() where user_id=$1',
+          [userRestrictionMatch[1]],
+        );
+        await client.query(
+          `update ride_requests
+           set driver_offer_status='rejected', updated_at=now()
+           where driver_offer_id=$1 and status='searching' and driver_offer_status='pending'`,
+          [userRestrictionMatch[1]],
+        );
+        await client.query('commit');
+        sendJson(response, 200, {
+          success: true,
+          restricted_until: restriction.rows[0].restricted_until,
+          created_at: restriction.rows[0].created_at,
+        });
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+      return;
+    }
+    if (method === 'DELETE' && userRestrictionMatch) {
+      const result = await pool.query(
+        `update account_restrictions
+         set lifted_at=now(), lifted_by=$2
+         where user_id=$1 and lifted_at is null
+           and (restricted_until is null or restricted_until > now())
+         returning id`,
+        [userRestrictionMatch[1], config.adminUsername],
+      );
+      if (!result.rowCount) throw fail('There is no active restriction to lift.', 404);
+      sendJson(response, 200, { success: true });
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/admin/reports') {
+      const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
+      const requestedOffset = Number(url.searchParams.get('offset') ?? 0);
+      const status = url.searchParams.get('status') ?? 'open';
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100
+        || !Number.isSafeInteger(requestedOffset) || requestedOffset < 0
+        || !['open', 'reviewing', 'resolved', 'dismissed', 'all'].includes(status)) {
+        throw fail('Invalid report-list page or status.');
+      }
+      const statusFilter = status === 'all' ? null : status;
+      const [count, reports] = await Promise.all([
+        pool.query(
+          `select count(*)::int as total from ride_reports
+           where $1::text is null or status=$1`,
+          [statusFilter],
+        ),
+        pool.query(
+          `select report.id as report_id, report.request_id, report.reporter_id,
+                  reporter.display_name as reporter_name, reporter.email as reporter_email,
+                  report.reported_user_id, reported.display_name as reported_name,
+                  reported.email as reported_email, report.category, report.details,
+                  report.status, report.created_at, report.reviewed_at,
+                  report.reviewed_by, report.review_note,
+                  ride.pickup_address, ride.destination_address, ride.vehicle,
+                  ride.offered_fare, ride.created_at as ride_created_at
+           from ride_reports report
+           join app_users reporter on reporter.id=report.reporter_id
+           join app_users reported on reported.id=report.reported_user_id
+           join ride_requests ride on ride.id=report.request_id
+           where $1::text is null or report.status=$1
+           order by report.created_at desc, report.id
+           limit $2 offset $3`,
+          [statusFilter, requestedLimit, requestedOffset],
+        ),
+      ]);
+      sendJson(response, 200, {
+        reports: reports.rows,
+        total: count.rows[0].total,
+        limit: requestedLimit,
+        offset: requestedOffset,
+      });
+      return;
+    }
+    const reportReviewMatch = pathname.match(
+      /^\/api\/admin\/reports\/([0-9a-f-]{36})$/i,
+    );
+    if (method === 'PATCH' && reportReviewMatch) {
+      const body = await readJson(request);
+      const note = typeof body.note === 'string' ? body.note.trim() : '';
+      if (!['reviewing', 'resolved', 'dismissed'].includes(body.status)
+        || note.length > 500) {
+        throw fail('Choose a valid report status and keep the review note under 500 characters.');
+      }
+      const result = await pool.query(
+        `update ride_reports set status=$2, review_note=$3,
+           reviewed_at=case when $2='reviewing' then null else now() end,
+           reviewed_by=$4
+         where id=$1 returning id, status, reviewed_at`,
+        [reportReviewMatch[1], body.status, note, config.adminUsername],
+      );
+      if (!result.rowCount) throw fail('Ride report not found.', 404);
+      sendJson(response, 200, { success: true, ...result.rows[0] });
       return;
     }
     const userHistoryMatch = pathname.match(
@@ -1197,35 +1372,46 @@ async function route(request, response, url) {
       || !validCoordinates(latitude, longitude)) {
       throw fail('Provide a valid name, vehicle, and location.');
     }
-    if (online) {
-      const application = await pool.query(
-        `select 1 from driver_applications
-         where user_id = $1 and status = 'approved'
-           and vehicle_color <> '' and vehicle_registration_number <> ''
-           and driver_photo_path is not null`,
-        [user.id],
-      );
-      if (!application.rowCount) {
-        throw fail('Complete your public driver and vehicle profile before going online.', 403);
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      if (online) {
+        await lockAndEnsureAccountCanUseServices(client, user.id);
+        const application = await client.query(
+          `select 1 from driver_applications
+           where user_id = $1 and status = 'approved'
+             and vehicle_color <> '' and vehicle_registration_number <> ''
+             and driver_photo_path is not null`,
+          [user.id],
+        );
+        if (!application.rowCount) {
+          throw fail('Complete your public driver and vehicle profile before going online.', 403);
+        }
+        const active = await client.query(
+          `select 1 from ride_requests where driver_id = $1 and status = 'accepted'`,
+          [user.id],
+        );
+        if (active.rowCount) throw fail('Complete your active ride before going online.');
       }
-      const active = await pool.query(
-        `select 1 from ride_requests where driver_id = $1 and status = 'accepted'`,
-        [user.id],
+      await client.query(
+        `update app_users set display_name = $2 where id = $1`,
+        [user.id, displayName],
       );
-      if (active.rowCount) throw fail('Complete your active ride before going online.');
+      await client.query(
+        `insert into driver_presence (user_id, vehicle, is_online, latitude, longitude, updated_at)
+         values ($1,$2,$3,$4,$5,now())
+         on conflict (user_id) do update set vehicle=excluded.vehicle, is_online=excluded.is_online,
+           latitude=excluded.latitude, longitude=excluded.longitude, updated_at=now()`,
+        [user.id, vehicle, online, latitude, longitude],
+      );
+      await client.query('commit');
+      sendJson(response, 200, { success: true });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
     }
-    await pool.query(
-      `update app_users set display_name = $2 where id = $1`,
-      [user.id, displayName],
-    );
-    await pool.query(
-      `insert into driver_presence (user_id, vehicle, is_online, latitude, longitude, updated_at)
-       values ($1,$2,$3,$4,$5,now())
-       on conflict (user_id) do update set vehicle=excluded.vehicle, is_online=excluded.is_online,
-         latitude=excluded.latitude, longitude=excluded.longitude, updated_at=now()`,
-      [user.id, vehicle, online, latitude, longitude],
-    );
-    sendJson(response, 200, { success: true });
     return;
   }
 
@@ -1307,10 +1493,12 @@ async function route(request, response, url) {
     if (!isUuid(body.request_id) || !['accept', 'reject'].includes(body.action)) {
       throw fail('Provide a valid ride request and choose accept or reject.');
     }
-
     const client = await pool.connect();
     try {
       await client.query('begin');
+      if (body.action === 'accept') {
+        await lockAndEnsureAccountCanUseServices(client, user.id);
+      }
       const approval = await client.query(
         `select 1 from driver_applications where user_id=$1 and status='approved' for update`,
         [user.id],
@@ -1396,6 +1584,7 @@ async function route(request, response, url) {
     const client = await pool.connect();
     try {
       await client.query('begin');
+      await lockAndEnsureAccountCanUseServices(client, user.id);
       const approval = await client.query(
         `select 1 from driver_applications where user_id=$1 and status='approved' for update`,
         [user.id],
@@ -1496,15 +1685,26 @@ async function route(request, response, url) {
       || destinationAddress.length < 1 || destinationAddress.length > 300) {
       throw fail('Enter valid ride locations, vehicle, and fare offer.');
     }
-    const result = await pool.query(
-      `insert into ride_requests
-       (rider_id,pickup_address,destination_address,pickup_latitude,pickup_longitude,
-        destination_latitude,destination_longitude,vehicle,offered_fare)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
-      [user.id, pickupAddress, destinationAddress, pickupLatitude, pickupLongitude,
-        destinationLatitude, destinationLongitude, vehicle, offeredFare],
-    );
-    sendJson(response, 201, { request_id: result.rows[0].id });
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      await lockAndEnsureAccountCanUseServices(client, user.id);
+      const result = await client.query(
+        `insert into ride_requests
+         (rider_id,pickup_address,destination_address,pickup_latitude,pickup_longitude,
+          destination_latitude,destination_longitude,vehicle,offered_fare)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`,
+        [user.id, pickupAddress, destinationAddress, pickupLatitude, pickupLongitude,
+          destinationLatitude, destinationLongitude, vehicle, offeredFare],
+      );
+      await client.query('commit');
+      sendJson(response, 201, { request_id: result.rows[0].id });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
     return;
   }
 
@@ -1529,6 +1729,8 @@ async function route(request, response, url) {
               (select count(*)::int from ride_requests
                where driver_id=r.driver_id and status='completed') as driver_completed_rides,
               rider_rating.rating as rider_rating,
+              (select status from ride_reports
+               where request_id=r.id and reporter_id=r.rider_id) as rider_report_status,
               r.driver_offer_status,
               case when r.driver_offer_status='pending' then offer_driver.display_name else '' end
                 as offer_driver_name,
@@ -1597,6 +1799,39 @@ async function route(request, response, url) {
     return;
   }
 
+  const rideReportMatch = pathname.match(/^\/api\/rides\/([0-9a-f-]{36})\/report$/i);
+  if (method === 'POST' && rideReportMatch) {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    const details = typeof body.details === 'string' ? body.details.trim() : '';
+    if (!['safety', 'behavior', 'vehicle', 'fare', 'other'].includes(body.category)
+      || details.length < 10 || details.length > 1500) {
+      throw fail('Choose a report reason and describe what happened in at least 10 characters.');
+    }
+    const ride = await pool.query(
+      `select driver_id from ride_requests
+       where id=$1 and rider_id=$2 and status in ('accepted', 'completed', 'cancelled')
+         and driver_id is not null`,
+      [rideReportMatch[1], user.id],
+    );
+    if (!ride.rowCount) {
+      throw fail('You can report a driver only for a ride assigned to your account.', 409);
+    }
+    try {
+      await pool.query(
+        `insert into ride_reports
+          (request_id, reporter_id, reported_user_id, category, details)
+         values ($1,$2,$3,$4,$5)`,
+        [rideReportMatch[1], user.id, ride.rows[0].driver_id, body.category, details],
+      );
+    } catch (error) {
+      if (error?.code === '23505') throw fail('A report for this ride has already been submitted.', 409);
+      throw error;
+    }
+    sendJson(response, 201, { success: true, status: 'open' });
+    return;
+  }
+
   const driverOfferResponseMatch = pathname.match(
     /^\/api\/rides\/([0-9a-f-]{36})\/driver-offer\/respond$/i,
   );
@@ -1612,6 +1847,17 @@ async function route(request, response, url) {
     const client = await pool.connect();
     try {
       await client.query('begin');
+      const ridePreview = await client.query(
+        `select driver_offer_id, driver_offer_fare
+         from ride_requests
+         where id=$1 and rider_id=$2 and status='searching'
+           and driver_offer_status='pending'`,
+        [driverOfferResponseMatch[1], user.id],
+      );
+      if (!ridePreview.rowCount) throw fail('This driver offer is no longer available.', 409);
+      if (body.action === 'accept') {
+        await lockAndEnsureAccountCanUseServices(client, ridePreview.rows[0].driver_offer_id);
+      }
       const rideResult = await client.query(
         `select driver_offer_id, driver_offer_fare
          from ride_requests
@@ -1622,6 +1868,9 @@ async function route(request, response, url) {
       );
       if (!rideResult.rowCount) throw fail('This driver offer is no longer available.', 409);
       const ride = rideResult.rows[0];
+      if (ride.driver_offer_id !== ridePreview.rows[0].driver_offer_id) {
+        throw fail('This driver offer has changed. Review the current offer.', 409);
+      }
       if (Number(ride.driver_offer_fare) !== body.offered_fare) {
         throw fail('The driver changed the fare. Review the updated offer before responding.', 409);
       }
@@ -1670,13 +1919,24 @@ async function route(request, response, url) {
     if (!Number.isInteger(offeredFare) || offeredFare < 1 || offeredFare > 1000000) {
       throw fail('Enter a fare offer between PKR 1 and PKR 1,000,000.');
     }
-    const result = await pool.query(
-      `update ride_requests set offered_fare=$3, updated_at=now()
-       where id=$1 and rider_id=$2 and status='searching' returning id`,
-      [rideOfferMatch[1], user.id, offeredFare],
-    );
-    if (!result.rowCount) throw fail('This ride offer can no longer be changed.', 409);
-    sendJson(response, 200, { success: true, offered_fare: offeredFare });
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      await lockAndEnsureAccountCanUseServices(client, user.id);
+      const result = await client.query(
+        `update ride_requests set offered_fare=$3, updated_at=now()
+         where id=$1 and rider_id=$2 and status='searching' returning id`,
+        [rideOfferMatch[1], user.id, offeredFare],
+      );
+      if (!result.rowCount) throw fail('This ride offer can no longer be changed.', 409);
+      await client.query('commit');
+      sendJson(response, 200, { success: true, offered_fare: offeredFare });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
     return;
   }
 

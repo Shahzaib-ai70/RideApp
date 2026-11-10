@@ -148,6 +148,45 @@ create table if not exists driver_ratings (
 create index if not exists driver_ratings_driver_idx
   on driver_ratings (driver_id, created_at desc);
 
+create table if not exists ride_reports (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid not null references ride_requests(id) on delete cascade,
+  reporter_id uuid not null references app_users(id) on delete cascade,
+  reported_user_id uuid not null references app_users(id) on delete cascade,
+  category text not null check (category in (
+    'safety', 'behavior', 'vehicle', 'fare', 'other'
+  )),
+  details text not null default '' check (char_length(details) <= 1500),
+  status text not null default 'open'
+    check (status in ('open', 'reviewing', 'resolved', 'dismissed')),
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by text,
+  review_note text not null default '',
+  unique (request_id, reporter_id)
+);
+
+create index if not exists ride_reports_status_created_idx
+  on ride_reports (status, created_at desc);
+create index if not exists ride_reports_reported_user_idx
+  on ride_reports (reported_user_id, created_at desc);
+
+create table if not exists account_restrictions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references app_users(id) on delete cascade,
+  restricted_until timestamptz,
+  reason text not null check (char_length(reason) between 5 and 500),
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  lifted_at timestamptz,
+  lifted_by text
+);
+
+create unique index if not exists account_restrictions_active_user_idx
+  on account_restrictions (user_id) where lifted_at is null;
+create index if not exists account_restrictions_expiry_idx
+  on account_restrictions (restricted_until) where lifted_at is null;
+
 create table if not exists driver_request_dismissals (
   request_id uuid not null references ride_requests(id) on delete cascade,
   driver_id uuid not null references app_users(id) on delete cascade,
