@@ -265,6 +265,17 @@ function validCoordinates(latitude, longitude) {
     && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
 }
 
+function distanceMeters(latitude1, longitude1, latitude2, longitude2) {
+  const radians = (degrees) => degrees * Math.PI / 180;
+  const latitudeDelta = radians(latitude2 - latitude1);
+  const longitudeDelta = radians(longitude2 - longitude1);
+  const rawHaversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(latitude1)) * Math.cos(radians(latitude2))
+      * Math.sin(longitudeDelta / 2) ** 2;
+  const haversine = Math.min(1, Math.max(0, rawHaversine));
+  return 2 * 6371000 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
 function distanceSql(latExpression, lonExpression) {
   return `2 * 6371000 * asin(sqrt(least(1, greatest(0,
     power(sin(radians(${latExpression} - $1) / 2), 2)
@@ -956,14 +967,80 @@ async function route(request, response, url) {
     const result = await pool.query(
       `select r.id as request_id, rider.display_name as rider_name, r.pickup_address,
               r.destination_address, r.vehicle, r.offered_fare, ${sqlDistance} as distance_m,
-              r.created_at
+              r.created_at,
+              case when r.driver_offer_id=$5 then r.driver_offer_status else null end as my_offer_status,
+              case when r.driver_offer_id=$5 then r.driver_offer_fare else null end as my_offer_fare
        from ride_requests r join app_users rider on rider.id=r.rider_id
        where r.status='searching' and r.vehicle=$3 and r.rider_id<>$4
+         and (r.driver_offer_status is distinct from 'pending' or r.driver_offer_id=$5)
          and ${sqlDistance} <= 10000
        order by distance_m, r.created_at limit 50`,
-      [latitude, longitude, vehicle, user.id],
+      [latitude, longitude, vehicle, user.id, user.id],
     );
     sendJson(response, 200, result.rows);
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/driver/offer') {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    const offeredFare = Number(body.offered_fare);
+    if (!isUuid(body.request_id) || !Number.isInteger(offeredFare)
+      || offeredFare < 1 || offeredFare > 1000000) {
+      throw fail('Provide a valid ride request and fare offer.');
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const approval = await client.query(
+        `select 1 from driver_applications where user_id=$1 and status='approved' for update`,
+        [user.id],
+      );
+      if (!approval.rowCount) throw fail('Driver approval is required to send a fare offer.', 403);
+      const request = await client.query(
+        `select id, rider_id, vehicle, pickup_latitude, pickup_longitude,
+                driver_offer_id, driver_offer_status
+         from ride_requests where id=$1 and status='searching' for update`,
+        [body.request_id],
+      );
+      if (!request.rowCount) throw fail('This ride request is no longer available.', 404);
+      const ride = request.rows[0];
+      const presence = await client.query(
+        `select vehicle, latitude, longitude from driver_presence
+         where user_id=$1 and is_online and updated_at > now() - interval '90 seconds'
+         for update`,
+        [user.id],
+      );
+      if (!presence.rowCount) throw fail('Go online with location enabled before sending an offer.');
+      const driver = presence.rows[0];
+      if (ride.rider_id === user.id) throw fail('You cannot offer on your own ride request.', 403);
+      if (ride.vehicle !== driver.vehicle) throw fail('Your vehicle does not match this ride request.', 409);
+      const distance = distanceMeters(
+        Number(driver.latitude),
+        Number(driver.longitude),
+        Number(ride.pickup_latitude),
+        Number(ride.pickup_longitude),
+      );
+      if (distance > 10000) throw fail('This ride request is outside your 10 km matching area.', 409);
+      if (ride.driver_offer_status === 'pending' && ride.driver_offer_id !== user.id) {
+        throw fail('Another driver already has an offer waiting for the rider.', 409);
+      }
+
+      await client.query(
+        `update ride_requests
+         set driver_offer_id=$2, driver_offer_fare=$3, driver_offer_status='pending', updated_at=now()
+         where id=$1`,
+        [body.request_id, user.id, offeredFare],
+      );
+      await client.query('commit');
+      sendJson(response, 200, { success: true, offered_fare: offeredFare, status: 'pending' });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
     return;
   }
 
@@ -972,50 +1049,12 @@ async function route(request, response, url) {
     const result = await pool.query(
       `select r.id as request_id, rider.display_name as rider_name, r.pickup_address,
               r.destination_address, r.vehicle, r.offered_fare, 0::double precision as distance_m,
-              r.created_at
+              r.created_at, null::text as my_offer_status, null::integer as my_offer_fare
        from ride_requests r join app_users rider on rider.id=r.rider_id
        where r.driver_id=$1 and r.status='accepted' order by r.updated_at desc limit 1`,
       [user.id],
     );
     sendJson(response, 200, { ride: result.rows[0] ?? null });
-    return;
-  }
-
-  if (method === 'POST' && pathname === '/api/driver/accept') {
-    const user = await requireUser(request);
-    const body = await readJson(request);
-    if (!isUuid(body.request_id)) throw fail('Invalid ride request.');
-    const client = await pool.connect();
-    try {
-      await client.query('begin');
-      const approved = await client.query(
-        `select 1 from driver_applications where user_id=$1 and status='approved' for update`,
-        [user.id],
-      );
-      if (!approved.rowCount) throw fail('Driver approval is required to accept rides.', 403);
-      const presence = await client.query(
-        `select 1 from driver_presence where user_id=$1 and is_online
-         and updated_at > now() - interval '90 seconds' for update`,
-        [user.id],
-      );
-      if (!presence.rowCount) throw fail('Go online with location enabled before accepting a ride.');
-      const accepted = await client.query(
-        `update ride_requests set status='accepted', driver_id=$2, updated_at=now()
-         where id=$1 and status='searching'
-           and vehicle=(select vehicle from driver_presence where user_id=$2)
-         returning id`,
-        [body.request_id, user.id],
-      );
-      if (!accepted.rowCount) throw fail('This ride was already accepted or is no longer available.', 409);
-      await client.query('update driver_presence set is_online=false where user_id=$1', [user.id]);
-      await client.query('commit');
-      sendJson(response, 200, { success: true });
-    } catch (error) {
-      await client.query('rollback');
-      throw error;
-    } finally {
-      client.release();
-    }
     return;
   }
 
@@ -1071,8 +1110,16 @@ async function route(request, response, url) {
     const user = await requireUser(request);
     const rideId = rideStatusMatch[1];
     const rideResult = await pool.query(
-      `select r.status, coalesce(driver.display_name, '') as driver_name,
+      `select r.status, r.offered_fare as agreed_fare,
+              coalesce(driver.display_name, '') as driver_name,
               coalesce(presence.vehicle, '') as driver_vehicle,
+              r.driver_offer_status,
+              case when r.driver_offer_status='pending' then offer_driver.display_name else '' end
+                as offer_driver_name,
+              case when r.driver_offer_status='pending' then offer_presence.vehicle else '' end
+                as offer_driver_vehicle,
+              case when r.driver_offer_status='pending' then r.driver_offer_fare else null end
+                as driver_offer_fare,
               case when r.status='accepted' and presence.updated_at > now() - interval '60 seconds'
                 then presence.latitude else null end as driver_latitude,
               case when r.status='accepted' and presence.updated_at > now() - interval '60 seconds'
@@ -1081,6 +1128,8 @@ async function route(request, response, url) {
                 then presence.updated_at else null end as driver_location_updated_at
        from ride_requests r left join app_users driver on driver.id=r.driver_id
        left join driver_presence presence on presence.user_id=r.driver_id
+       left join app_users offer_driver on offer_driver.id=r.driver_offer_id
+       left join driver_presence offer_presence on offer_presence.user_id=r.driver_offer_id
        where r.id=$1 and r.rider_id=$2`,
       [rideId, user.id],
     );
@@ -1088,6 +1137,70 @@ async function route(request, response, url) {
     const status = rideResult.rows[0];
     const drivers = status.status === 'searching' ? await getNearbyDrivers(user.id, rideId) : [];
     sendJson(response, 200, { status, drivers });
+    return;
+  }
+
+  const driverOfferResponseMatch = pathname.match(
+    /^\/api\/rides\/([0-9a-f-]{36})\/driver-offer\/respond$/i,
+  );
+  if (method === 'POST' && driverOfferResponseMatch) {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    if (!['accept', 'reject'].includes(body.action)
+      || !Number.isInteger(body.offered_fare)
+      || body.offered_fare < 1
+      || body.offered_fare > 1000000) {
+      throw fail('Provide a valid action and fare shown to the rider.');
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const rideResult = await client.query(
+        `select driver_offer_id, driver_offer_fare
+         from ride_requests
+         where id=$1 and rider_id=$2 and status='searching'
+           and driver_offer_status='pending'
+         for update`,
+        [driverOfferResponseMatch[1], user.id],
+      );
+      if (!rideResult.rowCount) throw fail('This driver offer is no longer available.', 409);
+      const ride = rideResult.rows[0];
+      if (Number(ride.driver_offer_fare) !== body.offered_fare) {
+        throw fail('The driver changed the fare. Review the updated offer before responding.', 409);
+      }
+      if (body.action === 'accept') {
+        const accepted = await client.query(
+          `update ride_requests
+           set status='accepted', driver_id=driver_offer_id, offered_fare=driver_offer_fare,
+               driver_offer_status='accepted', updated_at=now()
+           where id=$1 and rider_id=$2 and status='searching' and driver_offer_status='pending'
+           returning driver_id`,
+          [driverOfferResponseMatch[1], user.id],
+        );
+        if (!accepted.rowCount) throw fail('This driver offer is no longer available.', 409);
+        await client.query(
+          'update driver_presence set is_online=false where user_id=$1',
+          [accepted.rows[0].driver_id],
+        );
+      } else {
+        await client.query(
+          `update ride_requests set driver_offer_status='rejected', updated_at=now()
+           where id=$1 and rider_id=$2`,
+          [driverOfferResponseMatch[1], user.id],
+        );
+      }
+      await client.query('commit');
+      sendJson(response, 200, {
+        success: true,
+        action: body.action,
+        offered_fare: Number(ride.driver_offer_fare),
+      });
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
     return;
   }
 

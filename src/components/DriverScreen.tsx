@@ -28,6 +28,8 @@ type NearbyRequest = {
   offered_fare: number;
   distance_m: number;
   created_at: string;
+  my_offer_status: 'pending' | 'rejected' | null;
+  my_offer_fare: number | null;
 };
 type DriverRideHistory = {
   request_id: string;
@@ -102,7 +104,12 @@ function isNearbyRequest(value: unknown): value is NearbyRequest {
     && Number.isFinite(request.offered_fare)
     && typeof request.distance_m === 'number'
     && Number.isFinite(request.distance_m)
-    && typeof request.created_at === 'string';
+    && typeof request.created_at === 'string'
+    && (request.my_offer_status === null
+      || request.my_offer_status === 'pending'
+      || request.my_offer_status === 'rejected')
+    && (request.my_offer_fare === null
+      || (typeof request.my_offer_fare === 'number' && Number.isFinite(request.my_offer_fare)));
 }
 
 function finiteNumber(value: unknown): value is number | string {
@@ -169,6 +176,8 @@ export default function DriverScreen() {
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [requests, setRequests] = useState<NearbyRequest[]>([]);
+  const [offerAmounts, setOfferAmounts] = useState<Record<string, string>>({});
+  const [sendingOfferId, setSendingOfferId] = useState<string | null>(null);
   const [activeRide, setActiveRide] = useState<NearbyRequest | null>(null);
   const [activeRideLoaded, setActiveRideLoaded] = useState(false);
   const [requestError, setRequestError] = useState('');
@@ -294,7 +303,7 @@ export default function DriverScreen() {
   useEffect(() => {
     if (!session) return undefined;
     let active = true;
-    void apiRequest<{ ride: unknown }>('/driver/active-ride')
+    const fetchActiveRide = () => apiRequest<{ ride: unknown }>('/driver/active-ride')
       .then(({ ride }) => {
         if (!active) return;
         if (ride) {
@@ -302,7 +311,10 @@ export default function DriverScreen() {
             setRequestError('The server returned an invalid active ride.');
             return;
           }
-          setActiveRide(ride);
+          setActiveRide((current) => current?.request_id === ride.request_id ? current : ride);
+          setIsOnline(false);
+          watch.current?.remove();
+          watch.current = null;
         } else {
           setActiveRide(null);
         }
@@ -313,8 +325,11 @@ export default function DriverScreen() {
       .finally(() => {
         if (active) setActiveRideLoaded(true);
       });
+    void fetchActiveRide();
+    const timer = setInterval(() => void fetchActiveRide(), 10000);
     return () => {
       active = false;
+      clearInterval(timer);
     };
   }, [session]);
 
@@ -551,37 +566,27 @@ export default function DriverScreen() {
     };
   }, [activeRide, activeRideLoaded, application?.status, dashboardLoading, session, startOnline]);
 
-  const acceptRequest = async (request: NearbyRequest) => {
-    const confirmed = await confirm({
-      title: 'Accept ride request?',
-      message: `${request.pickup_address} → ${request.destination_address}\nOffer: PKR ${request.offered_fare}`,
-      cancelLabel: 'Not now',
-      confirmLabel: 'Accept',
-    });
-    if (!confirmed) return;
+  const sendFareOffer = async (request: NearbyRequest) => {
+    const amount = Number(offerAmounts[request.request_id]
+      ?? request.my_offer_fare
+      ?? request.offered_fare);
+    if (!Number.isInteger(amount) || amount < 1 || amount > 1000000) {
+      showMessage('Invalid fare offer', 'Enter a whole amount between PKR 1 and PKR 1,000,000.');
+      return;
+    }
 
-    setBusy(true);
+    setSendingOfferId(request.request_id);
     try {
-      await apiRequest('/driver/accept', {
+      await apiRequest('/driver/offer', {
         method: 'POST',
-        body: JSON.stringify({ request_id: request.request_id }),
+        body: JSON.stringify({ request_id: request.request_id, offered_fare: amount }),
       });
-      watch.current?.remove();
-      watch.current = null;
-      setIsOnline(false);
-      setActiveRide(request);
-      setRequests((current) => current.filter((item) => item.request_id !== request.request_id));
-      showMessage(
-        'Ride accepted',
-        'This MVP does not provide in-app calling, emergency/SOS support, or trip sharing. Do not use it for real passenger trips until those safety features are implemented.',
-      );
+      setOfferAmounts((current) => ({ ...current, [request.request_id]: String(amount) }));
+      showMessage('Fare offer sent', 'The rider can now accept or reject your fare in the app.');
     } catch (error: unknown) {
-      showMessage(
-        'Could not accept this ride',
-        error instanceof Error ? error.message : 'The request may already have been accepted.',
-      );
+      showMessage('Could not send fare offer', error instanceof Error ? error.message : 'Please try again.');
     } finally {
-      setBusy(false);
+      setSendingOfferId(null);
     }
   };
 
@@ -877,19 +882,47 @@ export default function DriverScreen() {
       {requests.map((request) => (
         <View key={request.request_id} style={styles.requestCard}>
           <View style={styles.requestTop}>
-            <Text style={styles.requestFare}>PKR {request.offered_fare}</Text>
+            <View>
+              <Text style={styles.requestMetaLabel}>RIDER OFFER</Text>
+              <Text style={styles.requestFare}>PKR {request.offered_fare}</Text>
+            </View>
             <Text style={styles.distance}>{(request.distance_m / 1000).toFixed(1)} km away</Text>
           </View>
           <Text style={styles.riderName}>Ride request · {request.rider_name || 'Sawaari rider'}</Text>
           <Text style={styles.routeText}>Pickup: {request.pickup_address}</Text>
           <Text style={styles.routeText}>Drop-off: {request.destination_address}</Text>
           <Text style={styles.routeText}>{request.vehicle} · {new Date(request.created_at).toLocaleTimeString()}</Text>
+          {request.my_offer_status === 'pending' ? (
+            <Text style={styles.offerStatus}>Your offer is waiting for the rider. You can update the price.</Text>
+          ) : request.my_offer_status === 'rejected' ? (
+            <Text style={styles.offerRejected}>Rider declined your last offer. Change the price and send again.</Text>
+          ) : null}
+          <View style={styles.driverOfferInputWrap}>
+            <Text style={styles.driverOfferCurrency}>PKR</Text>
+            <TextInput
+              accessibilityLabel={`Your fare offer for ${request.rider_name || 'ride request'}`}
+              value={offerAmounts[request.request_id]
+                ?? String(request.my_offer_fare ?? request.offered_fare)}
+              onChangeText={(text) => setOfferAmounts((current) => ({
+                ...current,
+                [request.request_id]: text.replace(/[^\d]/g, ''),
+              }))}
+              keyboardType="number-pad"
+              maxLength={7}
+              placeholder="Your fare"
+              style={styles.driverOfferInput}
+            />
+          </View>
           <Pressable
-            disabled={busy}
-            onPress={() => void acceptRequest(request)}
+            disabled={sendingOfferId === request.request_id}
+            onPress={() => void sendFareOffer(request)}
             style={styles.acceptButton}
           >
-            <Text style={styles.acceptText}>Accept ride</Text>
+            {sendingOfferId === request.request_id
+              ? <ActivityIndicator size="small" color={COLORS.green} />
+              : <Text style={styles.acceptText}>
+                {request.my_offer_status === 'pending' ? 'Update fare offer' : 'Send fare offer'}
+              </Text>}
           </Pressable>
         </View>
       ))}
@@ -1040,6 +1073,7 @@ const styles = StyleSheet.create({
   paymentHint: { color: COLORS.orange, fontSize: 10, lineHeight: 15, fontWeight: '700' },
   locationSharingNote: { color: COLORS.green, fontSize: 10, lineHeight: 15, fontWeight: '600' },
   requestTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  requestMetaLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
   requestFare: { color: COLORS.green, fontSize: 18, fontWeight: '800' },
   activeLabel: { color: COLORS.green, fontSize: 10, fontWeight: '800', letterSpacing: 1.1 },
   distance: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
@@ -1065,6 +1099,11 @@ const styles = StyleSheet.create({
   historyMeta: { marginTop: 4, color: COLORS.muted, fontSize: 9 },
   historyPayment: { marginTop: 4, color: COLORS.green, fontSize: 9, fontWeight: '700' },
   historyFare: { color: COLORS.green, fontSize: 12, fontWeight: '800' },
+  offerStatus: { color: COLORS.green, fontSize: 10, lineHeight: 15, fontWeight: '700' },
+  offerRejected: { color: COLORS.orange, fontSize: 10, lineHeight: 15, fontWeight: '700' },
+  driverOfferInputWrap: { minHeight: 44, paddingHorizontal: 11, borderRadius: 11, borderWidth: 1, borderColor: COLORS.line, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  driverOfferCurrency: { color: COLORS.muted, fontSize: 11, fontWeight: '800' },
+  driverOfferInput: { flex: 1, minWidth: 0, paddingVertical: 8, color: COLORS.ink, fontSize: 14, fontWeight: '800', textAlign: 'right' },
   acceptButton: { minHeight: 42, marginTop: 4, borderRadius: 11, backgroundColor: COLORS.lime, alignItems: 'center', justifyContent: 'center' },
   acceptText: { color: COLORS.green, fontSize: 12, fontWeight: '800' },
   disclaimer: { marginTop: 10, color: COLORS.muted, fontSize: 10, lineHeight: 16 },

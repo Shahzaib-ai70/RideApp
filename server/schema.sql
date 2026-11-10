@@ -94,6 +94,29 @@ create table if not exists ride_requests (
 alter table ride_requests
   add column if not exists cash_collected boolean not null default false;
 
+alter table ride_requests
+  add column if not exists driver_offer_id uuid references app_users(id) on delete set null,
+  add column if not exists driver_offer_fare integer,
+  add column if not exists driver_offer_status text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'ride_requests_driver_offer_fare_check'
+  ) then
+    alter table ride_requests
+      add constraint ride_requests_driver_offer_fare_check
+      check (driver_offer_fare is null or driver_offer_fare between 1 and 1000000);
+  end if;
+  if not exists (
+    select 1 from pg_constraint where conname = 'ride_requests_driver_offer_status_check'
+  ) then
+    alter table ride_requests
+      add constraint ride_requests_driver_offer_status_check
+      check (driver_offer_status is null or driver_offer_status in ('pending', 'rejected', 'accepted'));
+  end if;
+end $$;
+
 create index if not exists ride_requests_searching_idx
   on ride_requests (vehicle, created_at desc) where status = 'searching';
 create index if not exists ride_requests_rider_idx

@@ -62,10 +62,15 @@ type NearbyDriver = NearbyMapDriver & {
 };
 type RideServerStatus = {
   status: string;
+  agreed_fare: number | null;
   driver_name: string;
   driver_vehicle: string;
   driver_location_updated_at: string | null;
   driver_location: Coordinate | null;
+  driver_offer_status: 'pending' | 'rejected' | 'accepted' | null;
+  offer_driver_name: string;
+  offer_driver_vehicle: string;
+  driver_offer_fare: number | null;
 };
 
 const STORAGE_KEY = '@sawaari/rides';
@@ -238,6 +243,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [rides, setRides] = useState<Ride[]>([]);
   const [activeRideId, setActiveRideId] = useState<string | null>(null);
   const [updatingRideOffer, setUpdatingRideOffer] = useState(false);
+  const [respondingToOffer, setRespondingToOffer] = useState(false);
   const [locationGranted, setLocationGranted] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [locationPromptVisible, setLocationPromptVisible] = useState(false);
@@ -321,20 +327,37 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             const status = result.status as Record<string, unknown>;
             if (typeof status.status === 'string'
               && typeof status.driver_name === 'string'
-              && typeof status.driver_vehicle === 'string') {
+              && typeof status.driver_vehicle === 'string'
+              && typeof status.offer_driver_name === 'string'
+              && typeof status.offer_driver_vehicle === 'string') {
               const locationCandidate = {
                 latitude: status.driver_latitude,
                 longitude: status.driver_longitude,
               };
               const location = isCoordinate(locationCandidate) ? locationCandidate : null;
+              const offerStatus = status.driver_offer_status === 'pending'
+                || status.driver_offer_status === 'rejected'
+                || status.driver_offer_status === 'accepted'
+                ? status.driver_offer_status
+                : null;
               statusResults[ride.id] = {
                 status: status.status,
+                agreed_fare: typeof status.agreed_fare === 'number' && Number.isFinite(status.agreed_fare)
+                  ? status.agreed_fare
+                  : null,
                 driver_name: status.driver_name,
                 driver_vehicle: status.driver_vehicle,
                 driver_location_updated_at: typeof status.driver_location_updated_at === 'string'
                   ? status.driver_location_updated_at
                   : null,
                 driver_location: location,
+                driver_offer_status: offerStatus,
+                offer_driver_name: status.offer_driver_name,
+                offer_driver_vehicle: status.offer_driver_vehicle,
+                driver_offer_fare: typeof status.driver_offer_fare === 'number'
+                  && Number.isFinite(status.driver_offer_fare)
+                  ? status.driver_offer_fare
+                  : null,
               };
             }
           }
@@ -853,6 +876,57 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     }
   };
 
+  const respondToDriverOffer = async (ride: Ride, action: 'accept' | 'reject') => {
+    const offeredFare = rideStatuses[ride.id]?.driver_offer_fare;
+    if (typeof offeredFare !== 'number' || !Number.isFinite(offeredFare)) {
+      showMessage('Offer is unavailable', 'Wait for the latest driver fare to load, then try again.');
+      return;
+    }
+    setRespondingToOffer(true);
+    setMatchingError('');
+    try {
+      const result = await apiRequest<{ offered_fare: number }>(
+        `/rides/${encodeURIComponent(ride.id)}/driver-offer/respond`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ action, offered_fare: offeredFare }),
+        },
+      );
+      setRideStatuses((current) => {
+        const status = current[ride.id];
+        if (!status) return current;
+        if (action === 'accept') {
+          return {
+            ...current,
+            [ride.id]: {
+              ...status,
+              status: 'accepted',
+              agreed_fare: result.offered_fare,
+              driver_name: status.offer_driver_name,
+              driver_vehicle: status.offer_driver_vehicle,
+              driver_offer_status: 'accepted',
+            },
+          };
+        }
+        return {
+          ...current,
+          [ride.id]: { ...status, driver_offer_status: 'rejected' },
+        };
+      });
+      if (action === 'accept') {
+        showMessage('Fare accepted', 'Your driver is confirmed. Their live location will appear on the map.');
+      } else {
+        showMessage('Offer declined', 'Your ride is still searching. A driver can send another fare offer.');
+      }
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : 'Please try again.';
+      setMatchingError(detail);
+      showMessage('Could not respond to fare offer', detail);
+    } finally {
+      setRespondingToOffer(false);
+    }
+  };
+
   const cancelRide = (ride: Ride) => {
     const cancel = async () => {
       if (!ride.cloud) {
@@ -874,8 +948,13 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           status: 'cancelled',
           driver_name: '',
           driver_vehicle: '',
+          agreed_fare: null,
           driver_location_updated_at: null,
           driver_location: null,
+          driver_offer_status: null,
+          offer_driver_name: '',
+          offer_driver_vehicle: '',
+          driver_offer_fare: null,
         },
       }));
       setNearbyDrivers((current) => ({ ...current, [ride.id]: [] }));
@@ -1171,6 +1250,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     const drivers = nearbyDrivers[ride.id] ?? [];
     const accepted = status === 'accepted';
     const cloudRide = ride.cloud === true;
+    const agreedFare = rideStatuses[ride.id]?.agreed_fare ?? ride.offer;
 
     return (
       <ScrollView
@@ -1226,8 +1306,10 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         <View style={styles.trackingFareCard}>
           <View style={styles.trackingFareHeading}>
             <View>
-              <Text style={styles.trackingRouteCaption}>YOUR MANUAL OFFER</Text>
-              <Text style={styles.trackingFareAmount}>PKR {ride.offer.toLocaleString()}</Text>
+              <Text style={styles.trackingRouteCaption}>{accepted ? 'AGREED FARE' : 'YOUR MANUAL OFFER'}</Text>
+              <Text style={styles.trackingFareAmount}>
+                PKR {(accepted ? agreedFare : ride.offer).toLocaleString()}
+              </Text>
             </View>
             <View style={styles.trackingVehicle}>
               <VehicleArt vehicle={ride.vehicle} size={38} />
@@ -1537,6 +1619,55 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         </ScrollView>
         )}
       </View>
+      {activeRide
+        && activeRideStatus === 'searching'
+        && rideStatuses[activeRide.id]?.driver_offer_status === 'pending'
+        && typeof rideStatuses[activeRide.id]?.driver_offer_fare === 'number' ? (
+        <View accessibilityLiveRegion="polite" style={styles.driverOfferPopup}>
+          <View style={styles.driverOfferPopupHeading}>
+            <View style={styles.driverOfferPopupIcon}>
+              <Ionicons
+                name={rideStatuses[activeRide.id]?.offer_driver_vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
+                size={19}
+                color={COLORS.green}
+              />
+            </View>
+            <View style={styles.driverOfferPopupCopy}>
+              <Text style={styles.driverOfferPopupEyebrow}>NEW DRIVER OFFER</Text>
+              <Text style={styles.driverOfferPopupName}>
+                {rideStatuses[activeRide.id]?.offer_driver_name || 'Nearby driver'}
+                {rideStatuses[activeRide.id]?.offer_driver_vehicle
+                  ? ` · ${rideStatuses[activeRide.id].offer_driver_vehicle}`
+                  : ''}
+              </Text>
+            </View>
+            <Text style={styles.driverOfferPopupFare}>
+              PKR {rideStatuses[activeRide.id].driver_offer_fare?.toLocaleString()}
+            </Text>
+          </View>
+          <Text style={styles.driverOfferPopupHint}>Accept this fare to confirm your driver, or reject it to keep searching.</Text>
+          <View style={styles.driverOfferPopupActions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={respondingToOffer}
+              onPress={() => void respondToDriverOffer(activeRide, 'reject')}
+              style={[styles.rejectDriverOfferButton, respondingToOffer && styles.requestButtonPressed]}
+            >
+              <Text style={styles.rejectDriverOfferText}>Reject offer</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={respondingToOffer}
+              onPress={() => void respondToDriverOffer(activeRide, 'accept')}
+              style={[styles.acceptDriverOfferButton, respondingToOffer && styles.requestButtonPressed]}
+            >
+              {respondingToOffer
+                ? <ActivityIndicator size="small" color={COLORS.white} />
+                : <Text style={styles.acceptDriverOfferText}>Accept fare</Text>}
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       {renderPlaceSearch()}
     </View>
   );
@@ -1820,7 +1951,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#11283A' },
   app: { flex: 1, backgroundColor: COLORS.paper },
-  rideScreen: { flex: 1, minHeight: 0 },
+  rideScreen: { flex: 1, minHeight: 0, position: 'relative' },
   rideScreenWide: {
     width: '100%',
     maxWidth: 1440,
@@ -2466,6 +2597,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  driverOfferPopup: {
+    position: 'absolute',
+    top: 82,
+    left: 12,
+    right: 12,
+    zIndex: 20,
+    elevation: 10,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#CDE5DD',
+    backgroundColor: COLORS.white,
+    shadowColor: '#12273A',
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  driverOfferPopupHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  driverOfferPopupIcon: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.lime },
+  driverOfferPopupCopy: { flex: 1, minWidth: 0 },
+  driverOfferPopupEyebrow: { color: COLORS.green, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+  driverOfferPopupName: { marginTop: 3, color: COLORS.ink, fontSize: 12, fontWeight: '800' },
+  driverOfferPopupFare: { color: COLORS.green, fontSize: 17, fontWeight: '900' },
+  driverOfferPopupHint: { marginTop: 9, color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  driverOfferPopupActions: { flexDirection: 'row', gap: 9, marginTop: 11 },
+  rejectDriverOfferButton: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: '#FBE9E8', alignItems: 'center', justifyContent: 'center' },
+  rejectDriverOfferText: { color: COLORS.red, fontSize: 11, fontWeight: '800' },
+  acceptDriverOfferButton: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center' },
+  acceptDriverOfferText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
   matchText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
   liveLocationNote: { marginTop: 6, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
   nearbyDrivers: { marginTop: 12, padding: 11, borderRadius: 11, backgroundColor: '#F4F7FA', gap: 8 },
