@@ -25,7 +25,6 @@ import AccountPanel from './AccountPanel';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
 import VehicleArt from './VehicleArt';
-import VehicleSilhouette from './VehicleSilhouette';
 
 type Coordinate = MapPoint;
 type MapViewport = Coordinate & { latitudeDelta: number; longitudeDelta: number };
@@ -89,10 +88,6 @@ const VEHICLES: { name: Vehicle; detail: string }[] = [
   { name: 'Car', detail: '4 seats' },
   { name: 'Premium', detail: 'Comfort' },
 ];
-
-function resolveVehicle(value: string | null | undefined, fallback: Vehicle): Vehicle {
-  return VEHICLES.find((item) => item.name === value)?.name ?? fallback;
-}
 const FARE_RATES: Record<Vehicle, { base: number; perKm: number }> = {
   Bike: { base: 50, perKm: 30 },
   Rickshaw: { base: 80, perKm: 45 },
@@ -1378,7 +1373,11 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             {drivers.slice(0, 4).map((driver) => (
               <View key={driver.driver_id} style={styles.nearbyDriver}>
                 <View style={styles.nearbyAvatar}>
-                  <VehicleSilhouette vehicle={driver.vehicle} width={14} height={24} />
+                  <Ionicons
+                    name={driver.vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
+                    size={15}
+                    color={COLORS.green}
+                  />
                 </View>
                 <Text numberOfLines={1} style={styles.nearbyDriverName}>
                   {driver.driver_name || 'Sawaari driver'} · {driver.vehicle}
@@ -1629,13 +1628,10 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           <View accessibilityLiveRegion="polite" style={styles.driverOfferPopup}>
             <View style={styles.driverOfferPopupHeader}>
               <View style={styles.driverOfferPopupIcon}>
-                <VehicleSilhouette
-                  vehicle={resolveVehicle(
-                    rideStatuses[activeRide.id]?.offer_driver_vehicle,
-                    activeRide.vehicle,
-                  )}
-                  width={19}
-                  height={34}
+                <Ionicons
+                  name={rideStatuses[activeRide.id]?.offer_driver_vehicle === 'Bike' ? 'bicycle' : 'car-sport'}
+                  size={20}
+                  color={COLORS.ink}
                 />
               </View>
               <View style={styles.driverOfferPopupCopy}>
