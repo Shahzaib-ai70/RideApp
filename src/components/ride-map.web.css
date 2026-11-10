@@ -70,32 +70,14 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 36px;
-  height: 36px;
-  border: 1px solid #d5e0e2;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 2px 8px #12273a55;
 }
 
 .sawaari-marker-driver img {
   display: block;
-  width: 23px;
-  height: 32px;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-}
-
-.sawaari-marker-driver-accepted {
-  width: 44px;
-  height: 44px;
-  border: 2px solid #0b786f;
-  border-radius: 14px;
-  box-shadow: 0 3px 12px #12273a66;
-}
-
-.sawaari-marker-driver-accepted img {
-  width: 29px;
-  height: 38px;
+  filter: drop-shadow(0 1px 2px #12273a99);
 }
 
 .sawaari-open-map .leaflet-marker-icon:has(.sawaari-marker-destination) .sawaari-marker {

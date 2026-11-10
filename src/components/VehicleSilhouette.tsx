@@ -5,7 +5,7 @@ export type VehicleType = 'Bike' | 'Rickshaw' | 'Car' | 'Premium';
 const VEHICLE_COLORS: Record<VehicleType, string> = {
   Bike: '#C77B2A',
   Rickshaw: '#C99724',
-  Car: '#0B786F',
+  Car: '#E8EAEC',
   Premium: '#243B50',
 };
 
@@ -37,25 +37,51 @@ function vehicleSvgMarkup(vehicle: VehicleType) {
     </svg>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="58" height="88" viewBox="0 0 58 88">
-    <g fill="#17232C">
-      <path d="M1 22a3 3 0 0 1 3-3h4v18H4a3 3 0 0 1-3-3z"/>
-      <path d="M57 22a3 3 0 0 0-3-3h-4v18h4a3 3 0 0 0 3-3z"/>
-      <path d="M1 56a3 3 0 0 1 3-3h4v18H4a3 3 0 0 1-3-3z"/>
-      <path d="M57 56a3 3 0 0 0-3-3h-4v18h4a3 3 0 0 0 3-3z"/>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="72" viewBox="0 0 128 72">
+    <path d="M13 19c4-7 11-10 21-10h52c11 0 19 4 25 12l10 13c4 5 4 11 0 16l-10 9c-6 5-14 7-25 7H33c-10 0-17-3-21-9L5 46c-3-5-3-11 0-16z"
+      fill="#0D1920" opacity=".22" transform="translate(0 2)"/>
+    <g fill="#10191F" stroke="#303B40" stroke-width="1">
+      <rect x="25" y="3" width="16" height="21" rx="6"/>
+      <rect x="83" y="3" width="16" height="21" rx="6"/>
+      <rect x="25" y="48" width="16" height="21" rx="6"/>
+      <rect x="83" y="48" width="16" height="21" rx="6"/>
     </g>
-    <path d="M19 3h20c5 0 8 4 10 10l5 17v38c0 8-5 13-13 15v2H17v-2C9 81 4 76 4 68V30l5-17C11 7 14 3 19 3z"
-      fill="${paint}" stroke="#25343D" stroke-width="2"/>
-    <path d="M17 9h24c3 0 5 2 6 6l3 11H8l3-11c1-4 3-6 6-6z"
-      fill="#AFC9D1" stroke="#26363F" stroke-width="1.5"/>
-    <path d="M9 29h40v29H9z" fill="${paint}" stroke="#26363F" stroke-width="1.5"/>
-    <path d="M14 32h30v12H14z" fill="#243B4A" stroke="#D8E6E7" stroke-width="1"/>
-    <path d="M14 46h30v9H14z" fill="#243B4A" stroke="#D8E6E7" stroke-width="1"/>
-    <path d="M10 61h38l-3 10c-1 4-4 6-8 7H21c-4-1-7-3-8-7z"
-      fill="#AFC9D1" stroke="#26363F" stroke-width="1.5"/>
-    <path d="M8 17h4M46 17h4M8 72h4M46 72h4" stroke="#F5D991" stroke-width="3" stroke-linecap="round"/>
-    <path d="M21 5h16M21 82h16" stroke="#EEF3F1" stroke-width="1.5" opacity=".8"/>
+    <g fill="#78868B">
+      <rect x="29" y="6" width="8" height="15" rx="4"/>
+      <rect x="87" y="6" width="8" height="15" rx="4"/>
+      <rect x="29" y="51" width="8" height="15" rx="4"/>
+      <rect x="87" y="51" width="8" height="15" rx="4"/>
+    </g>
+    <path d="M13 20c4-7 11-10 21-10h52c11 0 19 4 25 12l10 13c4 5 4 11 0 16l-10 9c-6 5-14 7-25 7H33c-10 0-17-3-21-9L5 46c-3-5-3-11 0-16z"
+      fill="${paint}" stroke="#59646A" stroke-width="2"/>
+    <path d="M12 30l8-10q3-4 9-4v11l-4 8H8zM116 30l-8-10q-3-4-9-4v11l4 8h17z"
+      fill="#F6F7F7" stroke="#AAB2B6" stroke-width="1"/>
+    <path d="M8 27l9 2-4 9-9-2zM120 27l-9 2 4 9 9-2z"
+      fill="#F4F6F6" stroke="#AAB2B6" stroke-width="1"/>
+    <path d="M28 17h12v38H28q-6 0-9-5l-5-9 5-18q3-6 9-6z"
+      fill="#243643" stroke="#C1C9CC" stroke-width="1.5"/>
+    <path d="M42 16h42q5 0 7 5l4 12H39zM39 39h56l-4 13q-2 5-7 5H42z"
+      fill="#243643" stroke="#C1C9CC" stroke-width="1.5"/>
+    <path d="M96 21q6 2 10 8l6 9-6 9q-4 6-10 8l-5-11v-13z"
+      fill="#243643" stroke="#C1C9CC" stroke-width="1.5"/>
+    <path d="M40 35h57" fill="none" stroke="#9DAAAF" stroke-width="1.2"/>
+    <path d="M17 38h9M102 38h9" fill="none" stroke="#53636A" stroke-width="1.2"/>
+    <path d="M8 25l5 2-3 7-6-2zM8 47l5-2 3 7-5 2z"
+      fill="#C64F47" stroke="#873A35" stroke-width=".8"/>
+    <path d="M115 25l6 2 3 7-6 2zM115 47l6-2 3 2-3 7-6 2z"
+      fill="#F5D99A" stroke="#A38B5A" stroke-width=".8"/>
+    <path d="M17 13l8-4m78 4-8-4M17 59l8 4m78-4-8 4"
+      fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity=".85"/>
   </svg>`;
+}
+
+export function vehicleMarkerDimensions(
+  vehicle: VehicleType,
+  accepted: boolean,
+): [number, number] {
+  if (vehicle === 'Car' || vehicle === 'Premium') return accepted ? [72, 42] : [60, 36];
+  if (vehicle === 'Rickshaw') return accepted ? [48, 60] : [40, 50];
+  return accepted ? [58, 42] : [48, 35];
 }
 
 export function vehicleSvgDataUri(vehicle: VehicleType) {

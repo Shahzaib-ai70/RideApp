@@ -10,7 +10,8 @@ import {
 import { divIcon, latLngBounds } from 'leaflet';
 import type { LatLngExpression, LatLngTuple } from 'leaflet';
 import type { RideMapProps } from './ride-map.types';
-import { vehicleSvgDataUri } from './VehicleSilhouette';
+import { vehicleMarkerDimensions, vehicleSvgDataUri } from './VehicleSilhouette';
+import type { VehicleType } from './VehicleSilhouette';
 import { loadGoogleMaps } from './google-maps';
 import 'leaflet/dist/leaflet.css';
 import './ride-map.web.css';
@@ -29,16 +30,20 @@ function pinIcon(kind: 'pickup' | 'destination') {
 }
 
 function driverIcon(accepted: boolean, vehicle: string) {
-  const knownVehicle = vehicle === 'Bike' || vehicle === 'Rickshaw' || vehicle === 'Premium'
-    ? vehicle
-    : 'Car';
-  const size = accepted ? 44 : 36;
+  const knownVehicle = mapVehicleType(vehicle);
+  const [width, height] = vehicleMarkerDimensions(knownVehicle, accepted);
   return divIcon({
     className: 'sawaari-marker-shell',
-    html: `<span class="sawaari-marker-driver${accepted ? ' sawaari-marker-driver-accepted' : ''}"><img alt="" src="${vehicleSvgDataUri(knownVehicle)}" /></span>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
+    html: `<span class="sawaari-marker-driver" style="width:${width}px;height:${height}px"><img alt="" src="${vehicleSvgDataUri(knownVehicle)}" /></span>`,
+    iconSize: [width, height],
+    iconAnchor: [width / 2, height / 2],
   });
+}
+
+function mapVehicleType(vehicle: string | null | undefined): VehicleType {
+  return vehicle === 'Bike' || vehicle === 'Rickshaw' || vehicle === 'Premium'
+    ? vehicle
+    : 'Car';
 }
 
 function MapRegionEvents({ onRegionChange }: Pick<RideMapProps, 'onRegionChange'>) {
@@ -417,22 +422,22 @@ function GoogleRideMap({
       }));
     }
     nearbyDrivers.slice(0, 20).forEach((driver) => {
+      const vehicle = mapVehicleType(driver.vehicle);
+      const [width, height] = vehicleMarkerDimensions(vehicle, false);
       markers.current.push(new google.maps.Marker({
         map: currentMap,
         position: { lat: driver.latitude, lng: driver.longitude },
         title: `Nearby ${driver.vehicle}`,
         icon: {
-          url: vehicleSvgDataUri(
-            driver.vehicle === 'Bike' || driver.vehicle === 'Rickshaw' || driver.vehicle === 'Premium'
-              ? driver.vehicle
-              : 'Car',
-          ),
-          scaledSize: new google.maps.Size(34, 48),
-          anchor: new google.maps.Point(17, 24),
+          url: vehicleSvgDataUri(vehicle),
+          scaledSize: new google.maps.Size(width, height),
+          anchor: new google.maps.Point(width / 2, height / 2),
         },
       }));
     });
     if (acceptedDriverLocation) {
+      const vehicle = mapVehicleType(acceptedDriverVehicle);
+      const [width, height] = vehicleMarkerDimensions(vehicle, true);
       markers.current.push(new google.maps.Marker({
         map: currentMap,
         position: {
@@ -441,15 +446,9 @@ function GoogleRideMap({
         },
         title: `${acceptedDriverTitle} · ${acceptedDriverDescription}`,
         icon: {
-          url: vehicleSvgDataUri(
-            acceptedDriverVehicle === 'Bike'
-              || acceptedDriverVehicle === 'Rickshaw'
-              || acceptedDriverVehicle === 'Premium'
-              ? acceptedDriverVehicle
-              : 'Car',
-          ),
-          scaledSize: new google.maps.Size(42, 58),
-          anchor: new google.maps.Point(21, 29),
+          url: vehicleSvgDataUri(vehicle),
+          scaledSize: new google.maps.Size(width, height),
+          anchor: new google.maps.Point(width / 2, height / 2),
         },
       }));
     }

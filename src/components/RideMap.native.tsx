@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import type { RideMapProps } from './ride-map.types';
-import VehicleSilhouette from './VehicleSilhouette';
+import VehicleSilhouette, { vehicleMarkerDimensions } from './VehicleSilhouette';
 import type { VehicleType } from './VehicleSilhouette';
 
 const GREEN = '#0B786F';
@@ -60,33 +60,51 @@ export default function RideMap({
           </View>
         </Marker>
       )}
-      {nearbyDrivers.map((driver) => (
-        <Marker
-          key={driver.driver_id}
-          coordinate={{ latitude: driver.latitude, longitude: driver.longitude }}
-          title={`Nearby ${driver.vehicle}`}
-        >
-          <View style={styles.nearbyMarker}>
-            <VehicleSilhouette vehicle={vehicleType(driver.vehicle)} width={20} height={30} />
-          </View>
-        </Marker>
-      ))}
+      {nearbyDrivers.map((driver) => {
+        const vehicle = vehicleType(driver.vehicle);
+        const [width, height] = vehicleMarkerDimensions(vehicle, false);
+        return (
+          <Marker
+            key={driver.driver_id}
+            coordinate={{ latitude: driver.latitude, longitude: driver.longitude }}
+            title={`Nearby ${driver.vehicle}`}
+          >
+            <View style={[styles.vehicleMarker, { width, height }]}>
+              <VehicleSilhouette vehicle={vehicle} width={width} height={height} />
+            </View>
+          </Marker>
+        );
+      })}
       {acceptedDriverLocation ? (
-        <Marker
+        <AcceptedDriverMarker
           coordinate={acceptedDriverLocation}
+          vehicle={vehicleType(acceptedDriverVehicle ?? '')}
           title={acceptedDriverTitle}
           description={acceptedDriverDescription}
-        >
-          <View style={styles.liveDriverMarker}>
-            <VehicleSilhouette
-              vehicle={vehicleType(acceptedDriverVehicle ?? '')}
-              width={25}
-              height={36}
-            />
-          </View>
-        </Marker>
+        />
       ) : null}
     </MapView>
+  );
+}
+
+function AcceptedDriverMarker({
+  coordinate,
+  vehicle,
+  title,
+  description,
+}: {
+  coordinate: NonNullable<RideMapProps['acceptedDriverLocation']>;
+  vehicle: VehicleType;
+  title: string;
+  description: string;
+}) {
+  const [width, height] = vehicleMarkerDimensions(vehicle, true);
+  return (
+    <Marker coordinate={coordinate} title={title} description={description}>
+      <View style={[styles.vehicleMarker, { width, height }]}>
+        <VehicleSilhouette vehicle={vehicle} width={width} height={height} />
+      </View>
+    </Marker>
   );
 }
 
@@ -119,26 +137,9 @@ const styles = StyleSheet.create({
     backgroundColor: ORANGE,
     elevation: 4,
   },
-  nearbyMarker: {
-    width: 25,
-    height: 25,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: WHITE,
+  vehicleMarker: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#537A8A',
-    elevation: 3,
-  },
-  liveDriverMarker: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 3,
-    borderColor: WHITE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0B786F',
-    elevation: 6,
+    elevation: 5,
   },
 });
