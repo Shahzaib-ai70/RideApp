@@ -952,7 +952,7 @@ export default function DriverScreen() {
         <View accessibilityLiveRegion="polite" style={styles.requestPopup}>
           <View style={styles.requestPopupHeading}>
             <View style={styles.requestPopupIcon}>
-              <VehicleSilhouette vehicle={topRequest.vehicle} width={34} height={20} />
+              <VehicleSilhouette vehicle={topRequest.vehicle} width={19} height={34} />
             </View>
             <View style={styles.requestPopupTitleCopy}>
               <Text style={styles.requestPopupEyebrow}>RIDE REQUEST</Text>

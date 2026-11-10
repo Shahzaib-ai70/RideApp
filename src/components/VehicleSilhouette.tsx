@@ -5,7 +5,7 @@ export type VehicleType = 'Bike' | 'Rickshaw' | 'Car' | 'Premium';
 const VEHICLE_COLORS: Record<VehicleType, string> = {
   Bike: '#C77B2A',
   Rickshaw: '#C99724',
-  Car: '#E8EAEC',
+  Car: '#E51F2A',
   Premium: '#243B50',
 };
 
@@ -37,41 +37,43 @@ function vehicleSvgMarkup(vehicle: VehicleType) {
     </svg>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="72" viewBox="0 0 128 72">
-    <path d="M13 19c4-7 11-10 21-10h52c11 0 19 4 25 12l10 13c4 5 4 11 0 16l-10 9c-6 5-14 7-25 7H33c-10 0-17-3-21-9L5 46c-3-5-3-11 0-16z"
-      fill="#0D1920" opacity=".22" transform="translate(0 2)"/>
-    <g fill="#10191F" stroke="#303B40" stroke-width="1">
-      <rect x="25" y="3" width="16" height="21" rx="6"/>
-      <rect x="83" y="3" width="16" height="21" rx="6"/>
-      <rect x="25" y="48" width="16" height="21" rx="6"/>
-      <rect x="83" y="48" width="16" height="21" rx="6"/>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="128" viewBox="0 0 72 128">
+    <path d="M25 4h22c9 0 14 7 16 17l4 19v51c0 14-7 23-19 28l-8 4H32l-8-4C12 114 5 105 5 91V40l4-19C11 11 16 4 25 4z"
+      fill="#10191F" opacity=".3" transform="translate(1 2)"/>
+    <g fill="#11191E" stroke="#303A3F" stroke-width="1">
+      <rect x="2" y="27" width="13" height="23" rx="5"/>
+      <rect x="57" y="27" width="13" height="23" rx="5"/>
+      <rect x="2" y="78" width="13" height="23" rx="5"/>
+      <rect x="57" y="78" width="13" height="23" rx="5"/>
     </g>
-    <g fill="#78868B">
-      <rect x="29" y="6" width="8" height="15" rx="4"/>
-      <rect x="87" y="6" width="8" height="15" rx="4"/>
-      <rect x="29" y="51" width="8" height="15" rx="4"/>
-      <rect x="87" y="51" width="8" height="15" rx="4"/>
+    <g fill="#66747A">
+      <rect x="5" y="31" width="7" height="15" rx="3.5"/>
+      <rect x="60" y="31" width="7" height="15" rx="3.5"/>
+      <rect x="5" y="82" width="7" height="15" rx="3.5"/>
+      <rect x="60" y="82" width="7" height="15" rx="3.5"/>
     </g>
-    <path d="M13 20c4-7 11-10 21-10h52c11 0 19 4 25 12l10 13c4 5 4 11 0 16l-10 9c-6 5-14 7-25 7H33c-10 0-17-3-21-9L5 46c-3-5-3-11 0-16z"
-      fill="${paint}" stroke="#59646A" stroke-width="2"/>
-    <path d="M12 30l8-10q3-4 9-4v11l-4 8H8zM116 30l-8-10q-3-4-9-4v11l4 8h17z"
-      fill="#F6F7F7" stroke="#AAB2B6" stroke-width="1"/>
-    <path d="M8 27l9 2-4 9-9-2zM120 27l-9 2 4 9 9-2z"
-      fill="#F4F6F6" stroke="#AAB2B6" stroke-width="1"/>
-    <path d="M28 17h12v38H28q-6 0-9-5l-5-9 5-18q3-6 9-6z"
-      fill="#243643" stroke="#C1C9CC" stroke-width="1.5"/>
-    <path d="M42 16h42q5 0 7 5l4 12H39zM39 39h56l-4 13q-2 5-7 5H42z"
-      fill="#243643" stroke="#C1C9CC" stroke-width="1.5"/>
-    <path d="M96 21q6 2 10 8l6 9-6 9q-4 6-10 8l-5-11v-13z"
-      fill="#243643" stroke="#C1C9CC" stroke-width="1.5"/>
-    <path d="M40 35h57" fill="none" stroke="#9DAAAF" stroke-width="1.2"/>
-    <path d="M17 38h9M102 38h9" fill="none" stroke="#53636A" stroke-width="1.2"/>
-    <path d="M8 25l5 2-3 7-6-2zM8 47l5-2 3 7-5 2z"
-      fill="#C64F47" stroke="#873A35" stroke-width=".8"/>
-    <path d="M115 25l6 2 3 7-6 2zM115 47l6-2 3 2-3 7-6 2z"
-      fill="#F5D99A" stroke="#A38B5A" stroke-width=".8"/>
-    <path d="M17 13l8-4m78 4-8-4M17 59l8 4m78-4-8 4"
-      fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity=".85"/>
+    <path d="M25 4h22c9 0 14 7 16 17l4 19v51c0 14-7 23-19 28l-8 4H32l-8-4C12 114 5 105 5 91V40l4-19C11 11 16 4 25 4z"
+      fill="${paint}" stroke="#8F111A" stroke-width="2"/>
+    <path d="M25 7h22c7 0 11 5 13 14l2 9H10l2-9C14 12 18 7 25 7z"
+      fill="#F02B35" stroke="#A5121D" stroke-width="1"/>
+    <path d="M17 31h38l-3 12H20z" fill="#202B32" stroke="#AAB3B8" stroke-width="1.5"/>
+    <path d="M19 33h14l4 8H21z" fill="#BCC8CE" opacity=".82"/>
+    <path d="M39 33h13l-2 8H38z" fill="#101B22" opacity=".9"/>
+    <path d="M16 45h40l3 34H13z" fill="#E51F2A" stroke="#A5121D" stroke-width="1"/>
+    <path d="M19 48h34l2 13H17z" fill="#253640" stroke="#AAB3B8" stroke-width="1.5"/>
+    <path d="M22 50h12l3 9H20z" fill="#BBC8CE" opacity=".78"/>
+    <path d="M38 50h12l2 9H38z" fill="#111C23" opacity=".92"/>
+    <path d="M17 65h38l-2 11H19z" fill="#202B32" stroke="#AAB3B8" stroke-width="1.5"/>
+    <path d="M20 67h12l-2 7H19z" fill="#AEBBC1" opacity=".7"/>
+    <path d="M14 43h5m34 0h5M13 81h5m36 0h5" fill="none" stroke="#A5121D" stroke-width="1.5"/>
+    <path d="M12 37l5 2-2 6-7-1zM57 39l5-2 2 7-7 1z"
+      fill="#FFF2CC" stroke="#BA9A60" stroke-width=".8"/>
+    <path d="M10 89l7-1 2 7-5 3zM55 95l2-7 7 1-4 9z"
+      fill="#D52A2A" stroke="#81131A" stroke-width=".8"/>
+    <path d="M17 101h38l-4 10q-2 5-7 7l-6 3h-4l-6-3q-5-2-7-7z"
+      fill="#D71924" stroke="#9D121B" stroke-width="1.5"/>
+    <path d="M21 105h30l-4 7H25z" fill="#27353D" stroke="#9AA6AC" stroke-width="1.2"/>
+    <path d="M27 8h18M29 119l7 3 7-3" fill="none" stroke="#FF7A7F" stroke-width="1.5" opacity=".85"/>
   </svg>`;
 }
 
@@ -79,7 +81,7 @@ export function vehicleMarkerDimensions(
   vehicle: VehicleType,
   accepted: boolean,
 ): [number, number] {
-  if (vehicle === 'Car' || vehicle === 'Premium') return accepted ? [72, 42] : [60, 36];
+  if (vehicle === 'Car' || vehicle === 'Premium') return accepted ? [46, 82] : [40, 72];
   if (vehicle === 'Rickshaw') return accepted ? [48, 60] : [40, 50];
   return accepted ? [58, 42] : [48, 35];
 }

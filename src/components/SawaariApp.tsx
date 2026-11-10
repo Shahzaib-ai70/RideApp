@@ -1378,7 +1378,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             {drivers.slice(0, 4).map((driver) => (
               <View key={driver.driver_id} style={styles.nearbyDriver}>
                 <View style={styles.nearbyAvatar}>
-                  <VehicleSilhouette vehicle={driver.vehicle} width={24} height={14} />
+                  <VehicleSilhouette vehicle={driver.vehicle} width={14} height={24} />
                 </View>
                 <Text numberOfLines={1} style={styles.nearbyDriverName}>
                   {driver.driver_name || 'Sawaari driver'} · {driver.vehicle}
@@ -1634,8 +1634,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                     rideStatuses[activeRide.id]?.offer_driver_vehicle,
                     activeRide.vehicle,
                   )}
-                  width={34}
-                  height={20}
+                  width={19}
+                  height={34}
                 />
               </View>
               <View style={styles.driverOfferPopupCopy}>

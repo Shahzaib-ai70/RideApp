@@ -15,8 +15,6 @@ export default function VehicleArt({
   size?: number;
 }) {
   const plateColor = selected ? '#0B786F' : '#E5F3EF';
-  const isCar = vehicle === 'Car' || vehicle === 'Premium';
-
   return (
     <View
       accessible={false}
@@ -39,8 +37,8 @@ export default function VehicleArt({
         <View style={[styles.highlight, selected && styles.selectedHighlight]} />
         <VehicleSilhouette
           vehicle={vehicle}
-          width={size * (isCar ? 0.78 : 0.46)}
-          height={size * (isCar ? 0.42 : 0.68)}
+          width={size * 0.58}
+          height={size * 0.78}
         />
         {vehicle === 'Premium' ? (
           <View style={styles.premiumBadge}>
