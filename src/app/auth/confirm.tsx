@@ -3,9 +3,9 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import { Text } from '../../components/AppText';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiRequest } from '../../lib/api';
 import { pageMetadata } from '../../lib/seo';

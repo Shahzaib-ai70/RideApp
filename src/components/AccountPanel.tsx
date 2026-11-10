@@ -3,10 +3,9 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Text, TextInput } from './AppText';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest, saveAccessToken } from '../lib/api';
 

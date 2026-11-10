@@ -6,12 +6,12 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Text, TextInput } from './AppText';
 import AccountPanel from './AccountPanel';
 import DriverVerification from './DriverVerification';
+import VehicleArt from './VehicleArt';
 import type { DriverApplicationStatus, DriverApplicationSummary } from './DriverVerification';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
@@ -651,6 +651,7 @@ export default function DriverScreen() {
               onPress={() => setVehicle(item)}
               style={[styles.vehicleButton, vehicle === item && styles.vehicleSelected]}
             >
+              <VehicleArt vehicle={item} selected={vehicle === item} size={36} />
               <Text style={[styles.vehicleText, vehicle === item && styles.vehicleTextSelected]}>
                 {item}
               </Text>
@@ -817,9 +818,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
   vehicleLabel: { marginTop: 14 },
-  vehicleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
-  vehicleButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, backgroundColor: COLORS.paper },
-  vehicleSelected: { backgroundColor: '#EAF1F7', borderWidth: 1, borderColor: COLORS.green },
+  vehicleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  vehicleButton: { minWidth: 74, alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 9, borderRadius: 13, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  vehicleSelected: { borderColor: COLORS.green, backgroundColor: '#EAF1F7' },
   vehicleText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   vehicleTextSelected: { color: COLORS.green },
   onlineButton: {

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
+import { APP_FONT_FAMILY } from '../../components/AppText';
 
 const GREEN = '#245B8F';
 const MUTED = '#667785';
@@ -17,7 +18,7 @@ export default function TabLayout() {
           borderTopColor: '#DFE7EE',
           backgroundColor: '#FFFFFF',
         },
-        tabBarLabelStyle: { fontSize: 9, fontWeight: '600' },
+        tabBarLabelStyle: { fontFamily: APP_FONT_FAMILY, fontSize: 9, fontWeight: '600' },
       }}
     >
       <Tabs.Screen

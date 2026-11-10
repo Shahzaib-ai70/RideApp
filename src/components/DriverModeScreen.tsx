@@ -5,9 +5,10 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import { Text } from './AppText';
+import VehicleArt from './VehicleArt';
 
 const COLORS = {
   ink: '#F7FAFC',
@@ -43,7 +44,7 @@ export default function DriverModeScreen() {
 
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
-            <Ionicons name="car-sport" size={25} color={COLORS.green} />
+            <VehicleArt vehicle="Car" selected size={38} />
           </View>
           <Text style={styles.heroTitle}>Earn with Sawaari</Text>
           <Text style={styles.heroSubtitle}>
@@ -71,7 +72,7 @@ export default function DriverModeScreen() {
           style={({ pressed }) => [styles.choiceCard, pressed && styles.pressed]}
         >
           <View style={styles.choiceIcon}>
-            <Ionicons name="car-sport" size={30} color={COLORS.lime} />
+            <VehicleArt vehicle="Car" selected size={42} />
           </View>
           <View style={styles.choiceCopy}>
             <Text style={styles.choiceTitle}>Driver</Text>

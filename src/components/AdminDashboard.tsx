@@ -6,9 +6,9 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import { Text } from './AppText';
 import { adminApi } from '../lib/adminApi';
 import { withTimeout } from '../lib/withTimeout';
 

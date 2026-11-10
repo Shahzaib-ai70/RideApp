@@ -13,11 +13,10 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
+import { Text, TextInput } from './AppText';
 import RideMap from './RideMap';
 import type { MapPoint } from './ride-map.types';
 import { loadGoogleMaps } from './google-maps';
@@ -25,6 +24,7 @@ import { useInAppNotice } from './InAppNoticeProvider';
 import AccountPanel from './AccountPanel';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
+import VehicleArt from './VehicleArt';
 
 type Coordinate = MapPoint;
 type MapViewport = Coordinate & { latitudeDelta: number; longitudeDelta: number };
@@ -75,11 +75,11 @@ const DEFAULT_REGION: MapViewport = {
   longitudeDelta: 0.045,
 };
 const PAKISTAN_SEARCH_BOUNDS = '60.87,23.69,77.84,37.10';
-const VEHICLES: { name: Vehicle; icon: keyof typeof Ionicons.glyphMap; detail: string }[] = [
-  { name: 'Bike', icon: 'bicycle-outline', detail: '1 seat' },
-  { name: 'Rickshaw', icon: 'car-outline', detail: '3 seats' },
-  { name: 'Car', icon: 'car-sport-outline', detail: '4 seats' },
-  { name: 'Premium', icon: 'diamond-outline', detail: 'Comfort' },
+const VEHICLES: { name: Vehicle; detail: string }[] = [
+  { name: 'Bike', detail: '1 seat' },
+  { name: 'Rickshaw', detail: '3 seats' },
+  { name: 'Car', detail: '4 seats' },
+  { name: 'Premium', detail: 'Comfort' },
 ];
 const FARE_RATES: Record<Vehicle, { base: number; perKm: number }> = {
   Bike: { base: 50, perKm: 30 },
@@ -1181,11 +1181,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   }}
                   style={[styles.vehicleCard, selected && styles.vehicleCardSelected]}
                 >
-                  <Ionicons
-                    name={item.icon}
-                    size={25}
-                    color={selected ? COLORS.green : COLORS.muted}
-                  />
+                  <VehicleArt vehicle={item.name} selected={selected} size={42} />
                   <Text style={[styles.vehicleName, selected && styles.vehicleNameSelected]}>
                     {item.name}
                   </Text>
@@ -1279,7 +1275,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       ) : rides.length === 0 ? (
         <View style={styles.emptyState}>
           <View style={styles.emptyIcon}>
-            <Ionicons name="car-outline" size={28} color={COLORS.green} />
+            <VehicleArt vehicle="Car" size={42} />
           </View>
           <Text style={styles.emptyTitle}>No trips yet</Text>
           <Text style={styles.emptyCopy}>Your ride requests will appear here after you create one.</Text>
@@ -1302,11 +1298,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             <View key={ride.id} style={styles.tripCard}>
               <View style={styles.tripCardHeader}>
                 <View style={styles.tripVehicle}>
-                  <Ionicons
-                    name={VEHICLES.find((item) => item.name === ride.vehicle)?.icon ?? 'car-outline'}
-                    size={19}
-                    color={COLORS.green}
-                  />
+                  <VehicleArt vehicle={ride.vehicle} size={30} />
                 </View>
                 <View style={styles.tripSummary}>
                   <Text style={styles.tripVehicleName}>{ride.vehicle} · PKR {ride.offer}</Text>

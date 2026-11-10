@@ -7,11 +7,11 @@ import {
   Pressable,
   Platform,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Text, TextInput } from './AppText';
 import { apiRequest } from '../lib/api';
+import VehicleArt from './VehicleArt';
 
 const COLORS = {
   ink: '#172B3A',
@@ -247,6 +247,7 @@ export default function DriverVerification({
             onPress={() => setVehicleType(item)}
             style={[styles.vehicleButton, vehicleType === item && styles.vehicleSelected]}
           >
+            <VehicleArt vehicle={item} selected={vehicleType === item} size={36} />
             <Text style={[styles.vehicleText, vehicleType === item && styles.vehicleTextSelected]}>{item}</Text>
           </Pressable>
         ))}
@@ -326,9 +327,9 @@ const styles = StyleSheet.create({
   copy: { color: COLORS.muted, fontSize: 11, lineHeight: 17 },
   label: { marginTop: 4, color: COLORS.ink, fontSize: 11, fontWeight: '800' },
   input: { minHeight: 44, paddingHorizontal: 11, borderWidth: 1, borderColor: COLORS.line, borderRadius: 10, color: COLORS.ink, backgroundColor: COLORS.white },
-  vehicleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  vehicleButton: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, backgroundColor: COLORS.paper },
-  vehicleSelected: { backgroundColor: '#EAF1F7', borderWidth: 1, borderColor: COLORS.green },
+  vehicleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  vehicleButton: { minWidth: 74, alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 9, borderRadius: 13, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
+  vehicleSelected: { backgroundColor: '#EAF1F7', borderColor: COLORS.green },
   vehicleText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   vehicleTextSelected: { color: COLORS.green },
   documentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.line },

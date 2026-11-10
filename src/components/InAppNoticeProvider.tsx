@@ -3,9 +3,9 @@ import type { PropsWithChildren } from 'react';
 import {
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import { Text } from './AppText';
 
 type NoticeOptions = {
   title: string;
