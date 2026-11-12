@@ -2,13 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text } from './AppText';
+import { Pressable, Text } from './AppText';
 import { adminApi } from '../lib/adminApi';
 import { withTimeout } from '../lib/withTimeout';
 import RideMap from './RideMap';
@@ -164,11 +163,13 @@ export default function AdminDashboard({
   onClose,
   onOpenReviews,
   onOpenReports,
+  onOpenSupport,
   onOpenUsers,
 }: {
   onClose: () => void;
   onOpenReviews: () => void;
   onOpenReports: () => void;
+  onOpenSupport: () => void;
   onOpenUsers: (search?: string) => void;
 }) {
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
@@ -503,6 +504,16 @@ export default function AdminDashboard({
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.green} />
         </Pressable>
+        <Pressable accessibilityRole="button" onPress={onOpenSupport} style={styles.supportButton}>
+          <View style={styles.supportIcon}>
+            <Ionicons name="chatbubbles-outline" size={20} color={COLORS.green} />
+          </View>
+          <View style={styles.reviewCopy}>
+            <Text style={styles.reviewButtonText}>Live support inbox</Text>
+            <Text style={styles.reviewSubtitle}>Reply to rider and driver messages</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.green} />
+        </Pressable>
         <Pressable accessibilityRole="button" onPress={() => onOpenUsers()} style={styles.usersButton}>
           <View style={styles.usersIcon}>
             <Ionicons name="people-outline" size={20} color={COLORS.green} />
@@ -637,6 +648,8 @@ const styles = StyleSheet.create({
   heroHint: { marginLeft: 'auto', color: '#B5C9BE', fontSize: 9 },
   reviewButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: '#DDE8D6', borderRadius: 15, backgroundColor: '#F0F6E9' },
   reportButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: '#F0D8D6', borderRadius: 15, backgroundColor: '#FFF8F7' },
+  supportButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: '#CDE8DC', borderRadius: 15, backgroundColor: '#F0FAF5', elevation: 3, shadowColor: COLORS.green, shadowOpacity: 0.1, shadowRadius: 5, shadowOffset: { width: 0, height: 3 } },
+  supportIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: COLORS.lime },
   usersButton: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, borderWidth: 1, borderColor: COLORS.line, borderRadius: 15, backgroundColor: COLORS.white },
   reviewIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: COLORS.lime },
   usersIcon: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: '#E8F0E4' },

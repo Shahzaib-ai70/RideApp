@@ -3,13 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text, TextInput } from './AppText';
+import { Pressable, Text, TextInput } from './AppText';
 import { adminApi } from '../lib/adminApi';
 import RideMap from './RideMap';
 import type { MapPoint } from './ride-map.types';

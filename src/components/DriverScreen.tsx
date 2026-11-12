@@ -3,15 +3,15 @@ import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text, TextInput } from './AppText';
+import { Pressable, Text, TextInput } from './AppText';
 import AccountPanel from './AccountPanel';
 import DriverVerification from './DriverVerification';
 import VehicleArt from './VehicleArt';
+import SupportChatModal from './SupportChatModal';
 import type { DriverApplicationStatus, DriverApplicationSummary } from './DriverVerification';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
@@ -61,6 +61,8 @@ type DriverDashboard = {
 };
 
 const VEHICLES: Vehicle[] = ['Bike', 'Rickshaw', 'Car', 'Premium'];
+const WHATSAPP_SUPPORT_NUMBER = (process.env.EXPO_PUBLIC_WHATSAPP_SUPPORT_NUMBER ?? '')
+  .replace(/\D/g, '');
 const COLORS = {
   ink: '#12273A',
   muted: '#63798A',
@@ -187,6 +189,7 @@ export default function DriverScreen() {
   const [dashboard, setDashboard] = useState<DriverDashboard | null>(null);
   const [dashboardError, setDashboardError] = useState('');
   const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [supportChatVisible, setSupportChatVisible] = useState(false);
   const [lastPoint, setLastPoint] = useState<MapPoint | null>(null);
   const watch = useRef<Location.LocationSubscription | null>(null);
   const activeRideWatch = useRef<Location.LocationSubscription | null>(null);
@@ -746,6 +749,15 @@ export default function DriverScreen() {
           <View style={[styles.driverLiveDot, isOnline && styles.driverLiveDotOn]} />
           <Text style={styles.driverLiveText}>{isOnline ? 'You’re visible to nearby riders' : 'You’re currently offline'}</Text>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setSupportChatVisible(true)}
+          style={styles.driverSupportButton}
+        >
+          <Ionicons name="chatbubbles-outline" size={16} color={COLORS.lime} />
+          <Text style={styles.driverSupportText}>Contact Sawaari support</Text>
+          <Ionicons name="arrow-forward" size={14} color={COLORS.lime} />
+        </Pressable>
       </View>
       <View style={styles.notice}>
         <Ionicons name="warning-outline" size={18} color={COLORS.orange} />
@@ -942,7 +954,7 @@ export default function DriverScreen() {
         </View>
       ) : null}
       <Text style={styles.disclaimer}>
-        Cash tracking is an in-app record, not a money transfer. Electronic payments, payouts, navigation, live trip tracking, and safety support are not connected. Do not use this MVP for real passenger trips.
+        Cash tracking is an in-app record, not a money transfer. Electronic payments, payouts, navigation, live trip tracking, and emergency/SOS response are not connected. Contact Sawaari support for account and ride assistance.
       </Text>
     </ScrollView>
     {isOnline && !activeRide && topRequest ? (
@@ -1081,6 +1093,13 @@ export default function DriverScreen() {
         </View>
       </View>
     ) : null}
+    <SupportChatModal
+      visible={supportChatVisible}
+      onClose={() => setSupportChatVisible(false)}
+      customerEmail={session?.user.email}
+      whatsappNumber={WHATSAPP_SUPPORT_NUMBER}
+      onSignIn={() => setSupportChatVisible(false)}
+    />
     </View>
   );
 }
@@ -1179,6 +1198,8 @@ const styles = StyleSheet.create({
   driverLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#E79A54' },
   driverLiveDotOn: { backgroundColor: '#52D5A9' },
   driverLiveText: { color: '#D5E6E3', fontSize: 10, fontWeight: '600' },
+  driverSupportButton: { minHeight: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: '#5D7B83', backgroundColor: '#1C394A' },
+  driverSupportText: { color: COLORS.lime, fontSize: 10, fontWeight: '800' },
   card: { padding: 16, borderRadius: 20, borderWidth: 1, borderColor: '#E6EFEC', backgroundColor: COLORS.white, elevation: 3, shadowColor: '#173A4B', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sectionHeadingCopy: { flex: 1 },

@@ -9,8 +9,6 @@ import {
   ActivityIndicator,
   Image,
   Keyboard,
-  Linking,
-  Pressable,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -18,7 +16,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Text, TextInput } from './AppText';
+import { Pressable, Text, TextInput } from './AppText';
 import RideMap from './RideMap';
 import type { MapPoint, NearbyMapDriver } from './ride-map.types';
 import { loadGoogleMaps } from './google-maps';
@@ -27,6 +25,7 @@ import AccountPanel from './AccountPanel';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
 import VehicleArt from './VehicleArt';
+import SupportChatModal from './SupportChatModal';
 
 type Coordinate = MapPoint;
 type MapViewport = Coordinate & { latitudeDelta: number; longitudeDelta: number };
@@ -268,6 +267,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [locationGranted, setLocationGranted] = useState(false);
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [locationPromptVisible, setLocationPromptVisible] = useState(false);
+  const [supportChatVisible, setSupportChatVisible] = useState(false);
   const [locationCanAskAgain, setLocationCanAskAgain] = useState(true);
   const [loadingRides, setLoadingRides] = useState(true);
   const [storageError, setStorageError] = useState('');
@@ -281,25 +281,6 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const showMessage = useCallback((title: string, message: string) => {
     notify({ title, message });
   }, [notify]);
-  const openWhatsAppSupport = useCallback(async () => {
-    if (!/^\d{8,15}$/.test(WHATSAPP_SUPPORT_NUMBER)) {
-      showMessage(
-        'WhatsApp support is not configured',
-        'Sawaari support has not added its official WhatsApp Business number yet.',
-      );
-      return;
-    }
-
-    const supportMessage = encodeURIComponent('Hello Sawaari support, I need help with my ride and account.');
-    try {
-      await Linking.openURL(`https://wa.me/${WHATSAPP_SUPPORT_NUMBER}?text=${supportMessage}`);
-    } catch (error: unknown) {
-      showMessage(
-        'Could not open WhatsApp',
-        error instanceof Error ? error.message : 'Please try again or contact Sawaari support.',
-      );
-    }
-  }, [showMessage]);
   const directDistanceKm = pickup && destination
     && (Math.abs(pickup.latitude - destination.latitude) >= 0.0001
       || Math.abs(pickup.longitude - destination.longitude) >= 0.0001)
@@ -2336,7 +2317,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Open help and support centre"
-          onPress={() => void openWhatsAppSupport()}
+          onPress={() => setSupportChatVisible(true)}
           style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
         >
           <View style={styles.menuIcon}>
@@ -2345,56 +2326,11 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           <View style={styles.menuCopy}>
             <Text style={styles.menuTitle}>Help & support</Text>
             <Text style={styles.menuSubtitle}>
-              {WHATSAPP_SUPPORT_NUMBER
-                ? 'Contact support on WhatsApp'
-                : 'Official WhatsApp number not configured'}
+              Live chat · WhatsApp contact
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
         </Pressable>
-      </View>
-      <View style={styles.supportCard}>
-        <View style={styles.supportCardHeader}>
-          <View style={styles.supportBadge}>
-            <Ionicons
-              name={WHATSAPP_SUPPORT_NUMBER ? 'logo-whatsapp' : 'information-circle-outline'}
-              size={12}
-              color={COLORS.green}
-            />
-            <Text style={styles.supportBadgeText}>
-              {WHATSAPP_SUPPORT_NUMBER ? 'WHATSAPP SUPPORT' : 'SUPPORT SETUP'}
-            </Text>
-          </View>
-        </View>
-        <Text style={styles.supportTitle}>Need a quick ride or account fix?</Text>
-        <Text style={styles.supportText}>
-          {WHATSAPP_SUPPORT_NUMBER
-            ? 'Contact Sawaari support on WhatsApp for ride issues, reports, fare questions, or account help.'
-            : 'WhatsApp support will be available after Sawaari adds its official Business number. Ride reports can still be submitted from your trip history.'}
-        </Text>
-        <View style={styles.supportActions}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void openWhatsAppSupport()}
-            style={styles.supportPrimaryButton}
-          >
-            <Ionicons name="logo-whatsapp" size={16} color={COLORS.white} />
-            <Text style={styles.supportPrimaryText}>
-              {WHATSAPP_SUPPORT_NUMBER ? 'WhatsApp' : 'Not set up'}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => showMessage(
-              'Customer service',
-              'For trip problems, submit a report from your trip history. For immediate danger, contact local emergency services. The in-app live chat and AI assistant are not connected yet.',
-            )}
-            style={styles.supportSecondaryButton}
-          >
-            <Ionicons name="headset-outline" size={16} color={COLORS.ink} />
-            <Text style={styles.supportSecondaryText}>Support</Text>
-          </Pressable>
-        </View>
       </View>
       <View style={styles.profileFootnote}>
         <Ionicons name="information-circle-outline" size={18} color={COLORS.orange} />
@@ -2402,6 +2338,16 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           Driver applications are reviewed. Emergency support and online payments are not available yet.
         </Text>
       </View>
+      <SupportChatModal
+        visible={supportChatVisible}
+        onClose={() => setSupportChatVisible(false)}
+        customerEmail={session?.user.email}
+        whatsappNumber={WHATSAPP_SUPPORT_NUMBER}
+        onSignIn={() => {
+          setSupportChatVisible(false);
+          router.navigate('/profile');
+        }}
+      />
     </View>
   );
 
@@ -3229,55 +3175,4 @@ const styles = StyleSheet.create({
   menuDivider: { height: 0 },
   profileFootnote: { marginTop: 13, padding: 13, borderRadius: 16, backgroundColor: '#FFF3E7', flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
   profileFootnoteText: { flex: 1, color: '#775333', fontSize: 10, lineHeight: 15 },
-  supportCard: {
-    marginTop: 10,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: '#DCE8E5',
-    elevation: 3,
-    shadowColor: '#07151E',
-    shadowOpacity: 0.08,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  supportCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  supportBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: '#D9F5EA',
-  },
-  supportBadgeText: { color: COLORS.green, fontSize: 9, fontWeight: '800', letterSpacing: 0.7 },
-  supportTitle: { marginTop: 12, color: COLORS.ink, fontSize: 15, fontWeight: '800' },
-  supportText: { marginTop: 6, color: COLORS.muted, fontSize: 11, lineHeight: 17 },
-  supportActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  supportPrimaryButton: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: 12,
-    backgroundColor: COLORS.green,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    flexDirection: 'row',
-  },
-  supportPrimaryText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
-  supportSecondaryButton: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: 12,
-    backgroundColor: '#F4F8F7',
-    borderWidth: 1,
-    borderColor: '#DCE8E5',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    flexDirection: 'row',
-  },
-  supportSecondaryText: { color: COLORS.ink, fontSize: 11, fontWeight: '700' },
 });

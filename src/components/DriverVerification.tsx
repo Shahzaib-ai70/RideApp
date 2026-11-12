@@ -5,12 +5,11 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Pressable,
   Platform,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text, TextInput } from './AppText';
+import { Pressable, Text, TextInput } from './AppText';
 import { apiRequest } from '../lib/api';
 import VehicleArt from './VehicleArt';
 

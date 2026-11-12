@@ -1,11 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import {
-  Pressable,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text } from './AppText';
+import { Pressable, Text } from './AppText';
 
 type NoticeOptions = {
   title: string;

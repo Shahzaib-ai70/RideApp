@@ -3,16 +3,16 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text, TextInput } from './AppText';
+import { Pressable, Text, TextInput } from './AppText';
 import AdminDashboard from './AdminDashboard';
 import DriverReviewConsole from './DriverReviewConsole';
 import AdminUserConsole from './AdminUserConsole';
 import AdminReportConsole from './AdminReportConsole';
+import AdminSupportConsole from './AdminSupportConsole';
 import { adminApi } from '../lib/adminApi';
 import { withTimeout } from '../lib/withTimeout';
 
@@ -35,6 +35,7 @@ export default function AdminScreen() {
   const [showReviews, setShowReviews] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [showReports, setShowReports] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -220,6 +221,9 @@ export default function AdminScreen() {
       />
     );
   }
+  if (showSupport) {
+    return <AdminSupportConsole onClose={() => setShowSupport(false)} />;
+  }
 
   return (
     <AdminDashboard
@@ -228,6 +232,7 @@ export default function AdminScreen() {
       }}
       onOpenReviews={() => setShowReviews(true)}
       onOpenReports={() => setShowReports(true)}
+      onOpenSupport={() => setShowSupport(true)}
       onOpenUsers={(search = '') => {
         setUserSearch(search);
         setShowUsers(true);

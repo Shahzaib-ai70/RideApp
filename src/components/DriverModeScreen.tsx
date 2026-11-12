@@ -1,13 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
-  Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text } from './AppText';
+import { Pressable, Text } from './AppText';
 import VehicleArt from './VehicleArt';
 
 const COLORS = {

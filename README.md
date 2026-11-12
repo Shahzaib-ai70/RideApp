@@ -185,7 +185,8 @@ For Android/iOS builds, set `EXPO_PUBLIC_API_URL=https://sawaari.online/api` in 
 - Drivers can submit four private verification documents; the independent admin login reviews applications and serves private documents through expiring links.
 - The database is fresh. Existing Supabase users and ride data are not migrated. Users must create new accounts and confirm them; old password hashes and documents remain only in the old Supabase project.
 - Configure and periodically test encrypted database and private-document backups before storing real user data.
-- Location updates run only while the driver app is open. The app does not yet include phone/SMS verification, electronic payments or payouts, counter-offers, turn-by-turn navigation, background location, SOS/support, fraud monitoring, or government identity checks. Do not treat this MVP as ready for real passenger operations without the relevant safety, privacy, security, legal, and operational work.
+- Riders and drivers can open a private support chat from Profile or Driver mode. Signed-in support messages are stored on the VPS and handled through the authenticated admin panel's live support inbox. The WhatsApp action is available after `EXPO_PUBLIC_WHATSAPP_SUPPORT_NUMBER` is set to the official business number. The chat is not an emergency service and is not staffed automatically.
+- Location updates run only while the driver app is open. The app does not yet include phone/SMS verification, electronic payments or payouts, counter-offers, turn-by-turn navigation, background location, SOS/emergency response, fraud monitoring, or government identity checks. Do not treat this MVP as ready for real passenger operations without the relevant safety, privacy, security, legal, and operational work.
 - Public map/geocoding/routing services are best-effort. Select production providers and review their terms before commercial use.
 
 ## Driver verification and admin operations

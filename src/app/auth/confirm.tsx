@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text } from '../../components/AppText';
+import { Pressable, Text } from '../../components/AppText';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { apiRequest } from '../../lib/api';
 import { pageMetadata } from '../../lib/seo';

@@ -1,11 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
-  Pressable,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text } from './AppText';
+import { Pressable, Text } from './AppText';
 
 const TABS = [
   { label: 'Ride', icon: 'navigate-outline' as const, route: '/(tabs)' as const },

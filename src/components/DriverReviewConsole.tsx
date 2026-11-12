@@ -3,12 +3,11 @@ import * as Linking from 'expo-linking';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
-import { Text, TextInput } from './AppText';
+import { Pressable, Text, TextInput } from './AppText';
 import { adminApi } from '../lib/adminApi';
 
 const COLORS = {

@@ -1003,6 +1003,125 @@ async function route(request, response, url) {
       });
       return;
     }
+    if (method === 'GET' && pathname === '/api/admin/support/conversations') {
+      const requestedLimit = Number(url.searchParams.get('limit') ?? 50);
+      const requestedOffset = Number(url.searchParams.get('offset') ?? 0);
+      const status = url.searchParams.get('status') ?? 'open';
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100
+        || !Number.isSafeInteger(requestedOffset) || requestedOffset < 0
+        || !['open', 'closed', 'all'].includes(status)) {
+        throw fail('Invalid support inbox page or status.');
+      }
+      const statusFilter = status === 'all' ? null : status;
+      const [count, conversations] = await Promise.all([
+        pool.query(
+          `select count(*)::int as total from support_conversations
+           where $1::text is null or status=$1`,
+          [statusFilter],
+        ),
+        pool.query(
+          `select conversation.id as conversation_id, conversation.user_id,
+                  customer.display_name as customer_name, customer.email as customer_email,
+                  conversation.status, conversation.created_at, conversation.updated_at,
+                  latest.body as last_message, latest.sender_role as last_sender_role,
+                  latest.created_at as last_message_at
+           from support_conversations conversation
+           join app_users customer on customer.id=conversation.user_id
+           left join lateral (
+             select body, sender_role, created_at
+             from support_messages
+             where conversation_id=conversation.id
+             order by created_at desc, id desc limit 1
+           ) latest on true
+           where $1::text is null or conversation.status=$1
+           order by conversation.updated_at desc, conversation.id
+           limit $2 offset $3`,
+          [statusFilter, requestedLimit, requestedOffset],
+        ),
+      ]);
+      sendJson(response, 200, {
+        conversations: conversations.rows,
+        total: count.rows[0].total,
+        limit: requestedLimit,
+        offset: requestedOffset,
+      });
+      return;
+    }
+    const adminSupportMessagesMatch = pathname.match(
+      /^\/api\/admin\/support\/conversations\/([0-9a-f-]{36})\/messages$/i,
+    );
+    if (adminSupportMessagesMatch && method === 'GET') {
+      const messages = await pool.query(
+        `select message.id, message.sender_role, message.body, message.created_at
+         from (
+           select id, sender_role, body, created_at
+           from support_messages
+           where conversation_id=$1
+           order by created_at desc, id desc
+           limit 500
+         ) message
+         order by message.created_at, message.id`,
+        [adminSupportMessagesMatch[1]],
+      );
+      if (!messages.rowCount && !(await pool.query(
+        'select 1 from support_conversations where id=$1',
+        [adminSupportMessagesMatch[1]],
+      )).rowCount) {
+        throw fail('Support conversation not found.', 404);
+      }
+      sendJson(response, 200, { messages: messages.rows });
+      return;
+    }
+    if (adminSupportMessagesMatch && method === 'POST') {
+      const body = await readJson(request);
+      const message = typeof body.message === 'string' ? body.message.trim() : '';
+      if (message.length < 1 || message.length > 2000) {
+        throw fail('A support reply must contain 1 to 2000 characters.');
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        const conversation = await client.query(
+          'select id from support_conversations where id=$1 for update',
+          [adminSupportMessagesMatch[1]],
+        );
+        if (!conversation.rowCount) throw fail('Support conversation not found.', 404);
+        await client.query(
+          `insert into support_messages (conversation_id, sender_role, body)
+           values ($1, 'admin', $2)`,
+          [adminSupportMessagesMatch[1], message],
+        );
+        await client.query(
+          `update support_conversations set status='open', updated_at=now() where id=$1`,
+          [adminSupportMessagesMatch[1]],
+        );
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+      sendJson(response, 201, { sent: true });
+      return;
+    }
+    const adminSupportConversationMatch = pathname.match(
+      /^\/api\/admin\/support\/conversations\/([0-9a-f-]{36})$/i,
+    );
+    if (adminSupportConversationMatch && method === 'PATCH') {
+      const body = await readJson(request);
+      if (body.status !== 'open' && body.status !== 'closed') {
+        throw fail('Choose open or closed for the support conversation.');
+      }
+      const result = await pool.query(
+        `update support_conversations set status=$2, updated_at=now()
+         where id=$1 returning id, status`,
+        [adminSupportConversationMatch[1], body.status],
+      );
+      if (!result.rowCount) throw fail('Support conversation not found.', 404);
+      sendJson(response, 200, { success: true, ...result.rows[0] });
+      return;
+    }
     const reportReviewMatch = pathname.match(
       /^\/api\/admin\/reports\/([0-9a-f-]{36})$/i,
     );
@@ -1159,6 +1278,83 @@ async function route(request, response, url) {
       return;
     }
     throw fail('Not found.', 404);
+  }
+
+  if (method === 'POST' && pathname === '/api/support/conversations') {
+    const user = await requireUser(request);
+    const result = await pool.query(
+      `insert into support_conversations (user_id)
+       values ($1)
+       on conflict (user_id) where status='open'
+       do update set updated_at=now()
+       returning id as conversation_id, status, created_at, updated_at`,
+      [user.id],
+    );
+    sendJson(response, 200, result.rows[0]);
+    return;
+  }
+
+  const supportMessagesMatch = pathname.match(
+    /^\/api\/support\/conversations\/([0-9a-f-]{36})\/messages$/i,
+  );
+  if (supportMessagesMatch && method === 'GET') {
+    const user = await requireUser(request);
+    const conversation = await pool.query(
+      `select id, status from support_conversations where id=$1 and user_id=$2`,
+      [supportMessagesMatch[1], user.id],
+    );
+    if (!conversation.rowCount) throw fail('Support conversation not found.', 404);
+    const messages = await pool.query(
+      `select id, sender_role, body, created_at
+       from support_messages
+       where conversation_id=$1
+       order by created_at desc, id desc
+       limit 200`,
+      [supportMessagesMatch[1]],
+    );
+    sendJson(response, 200, {
+      status: conversation.rows[0].status,
+      messages: messages.rows.reverse(),
+    });
+    return;
+  }
+  if (supportMessagesMatch && method === 'POST') {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    const message = typeof body.message === 'string' ? body.message.trim() : '';
+    if (message.length < 1 || message.length > 2000) {
+      throw fail('A support message must contain 1 to 2000 characters.');
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const conversation = await client.query(
+        `select id, status from support_conversations
+         where id=$1 and user_id=$2 for update`,
+        [supportMessagesMatch[1], user.id],
+      );
+      if (!conversation.rowCount) throw fail('Support conversation not found.', 404);
+      if (conversation.rows[0].status !== 'open') {
+        throw fail('This support conversation is closed. Start a new chat for more help.', 409);
+      }
+      await client.query(
+        `insert into support_messages (conversation_id, sender_role, sender_user_id, body)
+         values ($1, 'customer', $2, $3)`,
+        [supportMessagesMatch[1], user.id, message],
+      );
+      await client.query(
+        `update support_conversations set updated_at=now() where id=$1`,
+        [supportMessagesMatch[1]],
+      );
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+    sendJson(response, 201, { sent: true });
+    return;
   }
 
   if (method === 'GET' && pathname === '/api/driver/application') {

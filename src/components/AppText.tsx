@@ -49,13 +49,13 @@ export function TextInput({ style, ...props }: TextInputProps) {
 const styles = StyleSheet.create({
   raised: {
     shadowColor: '#153947',
-    shadowOpacity: 0.13,
-    shadowRadius: 5,
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
+    elevation: 4,
   },
   pressed: {
-    transform: [{ translateY: 2 }],
+    transform: [{ translateY: 2 }, { scale: 0.99 }],
     shadowOpacity: 0.06,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },

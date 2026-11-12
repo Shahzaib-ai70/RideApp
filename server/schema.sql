@@ -195,3 +195,28 @@ create table if not exists driver_request_dismissals (
 );
 
 create index if not exists app_users_email_idx on app_users (lower(email));
+
+create table if not exists support_conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references app_users(id) on delete cascade,
+  status text not null default 'open' check (status in ('open', 'closed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists support_conversations_one_open_per_user_idx
+  on support_conversations (user_id) where status = 'open';
+create index if not exists support_conversations_status_updated_idx
+  on support_conversations (status, updated_at desc);
+
+create table if not exists support_messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references support_conversations(id) on delete cascade,
+  sender_role text not null check (sender_role in ('customer', 'admin')),
+  sender_user_id uuid references app_users(id) on delete set null,
+  body text not null check (char_length(body) between 1 and 2000),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists support_messages_conversation_idx
+  on support_messages (conversation_id, created_at, id);
