@@ -7,12 +7,12 @@ The old `supabase/migrations/` SQL files are retained only as legacy reference. 
 ## Local development
 
 1. Install Node.js 22 and run `npm ci`.
-2. Copy `.env.example` to `.env`. Set `EXPO_PUBLIC_API_URL` to the API's public `/api` URL for native app builds, and add optional Google Maps keys if configured.
+2. Copy `.env.example` to `.env`. Set `EXPO_PUBLIC_API_URL` to the API's public `/api` URL for native app builds, and add optional Google Maps keys if configured. Set `EXPO_PUBLIC_WHATSAPP_SUPPORT_NUMBER` to the official WhatsApp Business number in international format using digits only; leave it blank until the real number is available.
 3. Run `npm run web` for the local web preview or `npx expo start` for Expo Go.
 
 Web builds use the same-origin `/api` route. Native builds call `EXPO_PUBLIC_API_URL` (defaults to `https://sawaari.online/api`). A running VPS API and PostgreSQL database are required for user accounts, email verification, driver documents, and shared rides. The preview does not create fake accounts or drivers.
 
-The map uses Photon, OpenStreetMap, and OSRM public demo services unless Google Maps is configured. Address search can only return house numbers present in OpenStreetMap data. Riders can choose an exact pickup or destination by moving the map pin and can enter a street address or house number manually; ride coordinates are saved even when reverse geocoding has no street address. Public OSM-backed services have usage limits and no production SLA; choose suitable commercial services before a production launch. Starter fare values are examples, not current market rates or live quotes.
+The map uses Photon, OpenStreetMap, and OSRM public demo services unless Google Maps is configured. The web map code starts loading with the app instead of waiting for the map component's first render. Address search can only return house numbers present in OpenStreetMap data. Riders can choose an exact pickup or destination by moving the map pin and can enter a street address or house number manually; ride coordinates are saved even when reverse geocoding has no street address. Public OSM-backed services have usage limits and no production SLA, so map tile latency cannot be guaranteed; configure a restricted Google Maps key or another contracted provider for dependable production performance. Starter fare values are examples, not current market rates or live quotes.
 
 On the Ride page, Sawaari centers the map on the rider when location permission has already been granted. Otherwise, an in-page prompt lets the rider request location access; browser/device permission is still required. Ride and driver alerts and confirmations are displayed inside Sawaari rather than browser alert dialogs. Browser push notifications are not configured.
 
@@ -117,11 +117,26 @@ The GitHub Actions workflow builds the web app, typechecks and lints it, deploys
 | `VPS_PORT` | Optional SSH port, defaults to 22 |
 | `EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY` | Optional restricted Maps key |
 
+If GitHub Actions is unavailable, SSH to the VPS as the deployment account and run this from its cloned source directory. The deployment account must be able to write `/var/www/sawaari/dist/` and run the authorized API restart command. Set any optional public map or WhatsApp numbers in the shell before building; do not put database, SMTP, or admin secrets here.
+
+```sh
+cd /opt/sawaari-source
+git pull --ff-only origin main
+npm ci
+npm run typecheck
+npm run lint
+npm run build:web
+rsync -az --delete dist/ /var/www/sawaari/dist/
+npm ci --omit=dev
+sudo systemctl restart sawaari-api
+curl -fsS https://sawaari.online/api/health
+```
+
 Do not add database, SMTP, admin, or PostgreSQL credentials to GitHub Actions. They belong only in `/etc/sawaari/api.env` on the VPS. After deployment, test `/`, `/drive`, `/trips`, `/profile`, `/auth/confirm`, `/admin`, and `/api/health`.
 
-### Faster first load on mobile
+### Faster and more reliable website loads
 
-Enable gzip in the active Nginx `http` configuration so large JavaScript and CSS assets are compressed over the network. On Ubuntu VPS installations where `/etc/nginx/nginx.conf` includes `/etc/nginx/conf.d/*.conf`, install this once:
+The JavaScript and CSS bundles use content-hashed filenames. Enable gzip in the active Nginx `http` configuration to reduce their transfer size, revalidate HTML on every visit so it cannot keep pointing at deleted bundles, and cache hashed assets for seven days. On Ubuntu VPS installations where `/etc/nginx/nginx.conf` includes `/etc/nginx/conf.d/*.conf`, enable compression once:
 
 ```sh
 sudo tee /etc/nginx/conf.d/sawaari-gzip.conf >/dev/null <<'EOF'
@@ -135,15 +150,30 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-If Nginx reports that gzip directives are not allowed in this file, remove the snippet and put the same directives inside the `http { ... }` block in `/etc/nginx/nginx.conf`. Verify compression with:
+If Nginx reports that gzip directives are not allowed in this file, remove the snippet and put the same directives inside the `http { ... }` block in `/etc/nginx/nginx.conf`. In the active Sawaari `server` block, make the SPA and asset locations use these cache policies (the full example is `deploy/nginx.sawaari.conf.example`):
+
+```nginx
+location / {
+    try_files $uri $uri.html $uri/ /index.html;
+    add_header Cache-Control "no-cache, must-revalidate" always;
+}
+
+location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|ico|webp|woff2?)$ {
+    try_files $uri =404;
+    add_header Cache-Control "public, max-age=604800, immutable";
+}
+```
+
+`no-cache` makes browsers check for the current HTML before reusing it; hashed assets remain cacheable without risking a different build under the same URL. Reload Nginx after updating its configuration. Verify compression and the response headers with:
 
 ```sh
 asset=$(curl -fsS https://sawaari.online/ | grep -oE '/_expo/static/js/web/__common-[^"]+\.js' | head -n 1)
 test -n "$asset"
 curl -sSI -H 'Accept-Encoding: gzip' "https://sawaari.online$asset" | grep -iE 'content-encoding|vary'
+curl -sSI https://sawaari.online/trips | grep -i cache-control
 ```
 
-The response should include `Content-Encoding: gzip`. A deployment rebuilds the app assets, but gzip is a separate one-time Nginx setting.
+The JavaScript response should include `Content-Encoding: gzip`; the Trips HTML should include `Cache-Control: no-cache, must-revalidate`. A deployment rebuilds the app assets, but these Nginx settings must be applied separately. Reload the page after the change; you do not need to clear all browser data.
 
 For Android/iOS builds, set `EXPO_PUBLIC_API_URL=https://sawaari.online/api` in the build environment and rebuild the app. Native sessions are kept in Expo SecureStore; web sessions use an HttpOnly Secure cookie.
 

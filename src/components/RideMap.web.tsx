@@ -4,6 +4,33 @@ import type { RideMapProps } from './ride-map.types';
 
 type BrowserRideMap = ComponentType<RideMapProps>;
 
+const mapServiceHosts = process.env.EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY
+  ? ['https://maps.googleapis.com', 'https://maps.gstatic.com']
+  : [
+    'https://tile.openstreetmap.org',
+    'https://photon.komoot.io',
+    'https://router.project-osrm.org',
+  ];
+
+if (typeof document !== 'undefined') {
+  const connectedHosts = new Set(
+    Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="preconnect"]'))
+      .map((link) => link.href),
+  );
+  mapServiceHosts.forEach((host) => {
+    if (connectedHosts.has(host)) return;
+    const link = document.createElement('link');
+    link.rel = 'preconnect';
+    link.href = host;
+    link.crossOrigin = 'anonymous';
+    document.head.appendChild(link);
+  });
+}
+
+const browserMapPromise = typeof window === 'undefined'
+  ? null
+  : import('./RideMapLeaflet.web').then(({ default: LoadedMap }) => LoadedMap);
+
 export default function RideMap(props: RideMapProps) {
   const [BrowserMap, setBrowserMap] = useState<BrowserRideMap | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -11,8 +38,8 @@ export default function RideMap(props: RideMapProps) {
   useEffect(() => {
     let active = true;
 
-    import('./RideMapLeaflet.web')
-      .then(({ default: LoadedMap }) => {
+    (browserMapPromise ?? import('./RideMapLeaflet.web').then(({ default: LoadedMap }) => LoadedMap))
+      .then((LoadedMap) => {
         if (active) setBrowserMap(() => LoadedMap);
       })
       .catch((error: unknown) => {
@@ -50,3 +77,5 @@ export default function RideMap(props: RideMapProps) {
     </div>
   );
 }
+
+void browserMapPromise?.catch(() => undefined);
