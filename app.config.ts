@@ -22,7 +22,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ...config.ios,
       bundleIdentifier: 'com.sawaari.pakistan',
     },
-    android: { ...config.android, package: 'com.sawaari.pakistan' },
+    android: {
+      ...config.android,
+      package: 'com.sawaari.pakistan',
+      versionCode: config.android?.versionCode ?? 1,
+    },
     plugins: [
       'expo-router',
       'expo-secure-store',
