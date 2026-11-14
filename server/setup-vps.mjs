@@ -80,6 +80,12 @@ const adminPasswordConfirm = await secret('Re-enter admin password: ');
 if (adminPassword.length < 14 || adminPassword.length > 1024 || adminPassword !== adminPasswordConfirm) {
   throw new Error('Admin passwords must match and be between 14 and 1024 characters.');
 }
+const googleMapsServerApiKey = await secret(
+  'Google Maps server API key for Routes, Places, and Geocoding (optional; input hidden): ',
+);
+const tomtomSearchApiKey = await secret(
+  'TomTom Search API key for website location search (optional; input hidden): ',
+);
 const salt = randomBytes(16);
 const digest = await scrypt(adminPassword, salt, 64);
 const adminPasswordHash = `scrypt$${salt.toString('base64url')}$${digest.toString('base64url')}`;
@@ -104,6 +110,8 @@ const contents = [
   `SMTP_FROM=${JSON.stringify(smtpFrom)}`,
   `ADMIN_USERNAME=${JSON.stringify(adminUsername)}`,
   `ADMIN_PASSWORD_HASH=${JSON.stringify(adminPasswordHash)}`,
+  `GOOGLE_MAPS_SERVER_API_KEY=${JSON.stringify(googleMapsServerApiKey)}`,
+  `TOMTOM_API_KEY_SERVER=${JSON.stringify(tomtomSearchApiKey)}`,
   'PRIVATE_DOCUMENTS_DIR="/var/lib/sawaari/private-documents"',
   '',
 ].join('\n');
@@ -120,4 +128,4 @@ chmodSync('/var/lib/sawaari', 0o750);
 mkdirSync('/var/lib/sawaari/private-documents', { recursive: true, mode: 0o700 });
 chownSync('/var/lib/sawaari/private-documents', wwwDataUid, wwwDataGid);
 chmodSync('/var/lib/sawaari/private-documents', 0o700);
-console.log('Saved VPS database, SMTP, and admin settings to /etc/sawaari/api.env.');
+console.log('Saved VPS database, SMTP, admin, and optional map settings to /etc/sawaari/api.env.');

@@ -1,46 +1,59 @@
-.sawaari-google-map-frame,
-.sawaari-google-map,
-.sawaari-open-map {
+.sawaari-mapbox-frame,
+.sawaari-mapbox-canvas {
   width: 100%;
   height: 100%;
 }
 
-.sawaari-google-map-frame {
+.sawaari-mapbox-frame {
   position: relative;
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  height: 100%;
+  min-height: 220px;
+  overflow: hidden;
   background: #dce9e5;
   font-family: system-ui, sans-serif;
 }
 
-.sawaari-open-map .leaflet-control-attribution {
+.sawaari-mapbox-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sawaari-mapbox-frame .mapboxgl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid #dce8e5;
+  border-radius: 12px;
+  box-shadow: 0 3px 12px #12273a26;
+}
+
+.sawaari-mapbox-frame .mapboxgl-ctrl button {
+  width: 34px;
+  height: 34px;
+}
+
+.sawaari-mapbox-frame .mapboxgl-ctrl-attrib {
   font-size: 9px;
   background: #ffffffd9;
-  padding: 2px 5px;
 }
 
-.sawaari-open-map .leaflet-bar a {
-  color: #0b786f;
-}
-
-.sawaari-open-map .leaflet-bar a:hover {
-  color: #0b786f;
-  background: #d9f5ea;
-}
-
-.sawaari-marker-shell {
-  border: 0;
-  background: transparent;
-}
-
-.sawaari-marker {
+.sawaari-mapbox-pin {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-sizing: border-box;
-  border: 3px solid #fff;
   box-shadow: 0 2px 9px #12273a55;
+  cursor: grab;
 }
 
-.sawaari-marker-pickup {
+.sawaari-mapbox-pin:active {
+  cursor: grabbing;
+}
+
+.sawaari-mapbox-pin-pickup {
   width: 25px;
   height: 25px;
   border: 5px solid #fff;
@@ -48,51 +61,68 @@
   background: #0b786f;
 }
 
-.sawaari-marker-pickup i {
+.sawaari-mapbox-pin-pickup span {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: #fff;
 }
 
-.sawaari-marker-destination {
-  width: 29px;
-  height: 29px;
-  border-radius: 11px 11px 11px 2px;
+.sawaari-mapbox-pin-destination {
+  width: 30px;
+  height: 30px;
+  border: 3px solid #fff;
+  border-radius: 50% 50% 50% 3px;
   transform: rotate(-45deg);
   background: #e79a54;
-  color: #fff;
-  font-size: 10px;
 }
 
-.sawaari-marker-driver {
+.sawaari-mapbox-pin-destination::after {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+}
+
+.sawaari-mapbox-pin-preview {
+  width: 22px;
+  height: 22px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #0b786f;
+}
+
+.sawaari-mapbox-pin-preview-destination {
+  background: #e79a54;
+}
+
+.sawaari-mapbox-driver {
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 27px;
-  height: 27px;
+  width: 28px;
+  height: 28px;
   border: 2px solid #fff;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 2px 9px #12273a66;
   color: #12273a;
-  font-size: 17px;
+  font-size: 16px;
 }
 
-.sawaari-marker-driver-accepted {
-  width: 39px;
-  height: 39px;
+.sawaari-mapbox-driver-accepted {
+  width: 40px;
+  height: 40px;
   border: 3px solid #0b786f;
   font-size: 21px;
 }
 
-.sawaari-open-map .leaflet-marker-icon:has(.sawaari-marker-destination) .sawaari-marker {
-  transform: rotate(45deg);
-}
-
-.sawaari-map-setup {
+.sawaari-map-setup,
+.sawaari-mapbox-error {
   position: absolute;
+  z-index: 4;
   inset: 0;
   display: flex;
   flex-direction: column;
@@ -105,6 +135,36 @@
   line-height: 1.5;
 }
 
-.sawaari-map-setup strong {
+.sawaari-mapbox-warning {
+  position: absolute;
+  z-index: 3;
+  right: 12px;
+  bottom: 30px;
+  left: 12px;
+  width: fit-content;
+  max-width: min(440px, calc(100% - 24px));
+  margin: 0 auto;
+  padding: 8px 11px;
+  border: 1px solid #e6c18f;
+  border-radius: 10px;
+  color: #66451e;
+  background: #fff8e9;
+  box-shadow: 0 2px 8px #12273a26;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.sawaari-map-setup strong,
+.sawaari-mapbox-error strong {
   font-size: 19px;
+}
+
+.sawaari-map-setup a {
+  width: fit-content;
+  color: #0b786f;
+  font-weight: 700;
+}
+
+.sawaari-map-setup code {
+  font-size: 12px;
 }

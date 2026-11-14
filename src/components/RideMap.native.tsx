@@ -1,8 +1,8 @@
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
-import type { RideMapProps } from './ride-map.types';
+import type { MapPoint, RideMapProps } from './ride-map.types';
 
 const GREEN = '#0B786F';
 const WHITE = '#FFFFFF';
@@ -20,6 +20,14 @@ export default function RideMap({
   followAcceptedDriver = true,
   locationGranted,
   onRegionChange,
+  onMapPress,
+  onMarkerDragEnd,
+  routeOptions = [],
+  selectedRouteIndex = 0,
+  onSelectRoute,
+  mapType = 'standard',
+  previewPoint,
+  previewPointKind = 'pickup',
 }: RideMapProps) {
   const map = useRef<MapView>(null);
 
@@ -37,26 +45,62 @@ export default function RideMap({
       ref={map}
       style={StyleSheet.absoluteFill}
       provider={PROVIDER_GOOGLE}
+      mapType={mapType}
       region={region}
       onRegionChangeComplete={onRegionChange}
+      onPress={onMapPress ? (event: { nativeEvent: { coordinate: MapPoint } }) => {
+        onMapPress(event.nativeEvent.coordinate);
+      } : undefined}
       showsUserLocation={locationGranted}
       showsMyLocationButton={false}
       toolbarEnabled={false}
       accessibilityLabel="Map showing the selected pickup and destination."
     >
+      {routeOptions.map((route, index) => (
+        <Polyline
+          key={`route-${index}`}
+          coordinates={route.path}
+          strokeColor={index === selectedRouteIndex ? GREEN : '#64828B'}
+          strokeWidth={index === selectedRouteIndex ? 6 : 4}
+          zIndex={index === selectedRouteIndex ? 2 : 1}
+          tappable={Boolean(onSelectRoute)}
+          onPress={() => onSelectRoute?.(index)}
+        />
+      ))}
       {pickup && (
-        <Marker coordinate={pickup} title="Pickup">
+        <Marker
+          coordinate={pickup}
+          title="Pickup"
+          draggable={Boolean(onMarkerDragEnd)}
+          onDragEnd={onMarkerDragEnd ? (event) => {
+            onMarkerDragEnd('pickup', event.nativeEvent.coordinate);
+          } : undefined}
+        >
           <View style={styles.pickupMarker}>
             <View style={styles.pickupMarkerDot} />
           </View>
         </Marker>
       )}
       {destination && (
-        <Marker coordinate={destination} title="Destination">
+        <Marker
+          coordinate={destination}
+          title="Destination"
+          draggable={Boolean(onMarkerDragEnd)}
+          onDragEnd={onMarkerDragEnd ? (event) => {
+            onMarkerDragEnd('destination', event.nativeEvent.coordinate);
+          } : undefined}
+        >
           <View style={styles.destinationMarker}>
             <Ionicons name="location" size={18} color={WHITE} />
           </View>
         </Marker>
+      )}
+      {previewPoint && (
+        <Marker
+          coordinate={previewPoint}
+          title={`Selected ${previewPointKind}`}
+          pinColor={previewPointKind === 'destination' ? ORANGE : GREEN}
+        />
       )}
       {nearbyDrivers.map((driver) => (
         <Marker

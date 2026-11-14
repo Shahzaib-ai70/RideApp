@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import Busboy from 'busboy';
 import nodemailer from 'nodemailer';
 import pg from 'pg';
+import { searchTomTomLocations } from './tomtom-search.mjs';
 
 const { Pool } = pg;
 const scrypt = promisify(scryptCallback);
@@ -42,6 +43,8 @@ const config = {
   smtpUser: process.env.SMTP_USER ?? '',
   smtpPassword: process.env.SMTP_PASSWORD ?? '',
   smtpFrom: process.env.SMTP_FROM ?? '',
+  googleMapsServerApiKey: process.env.GOOGLE_MAPS_SERVER_API_KEY ?? '',
+  tomtomSearchApiKey: process.env.TOMTOM_API_KEY_SERVER ?? '',
 };
 
 if (!config.databaseUrl || !config.sessionSecret || config.sessionSecret.length < 32
@@ -68,6 +71,62 @@ const mailer = nodemailer.createTransport({
   socketTimeout: 20000,
 });
 const loginAttempts = new Map();
+const mapsRequestLimits = new Map();
+
+function enforceMapsRequestLimit(userId, action, limit) {
+  const now = Date.now();
+  const key = `${userId}:${action}`;
+  const state = mapsRequestLimits.get(key) ?? { count: 0, resetAt: now + 60_000 };
+  if (state.resetAt <= now) {
+    state.count = 0;
+    state.resetAt = now + 60_000;
+  }
+  state.count += 1;
+  mapsRequestLimits.set(key, state);
+  if (mapsRequestLimits.size > 10000) {
+    for (const [requestKey, item] of mapsRequestLimits) {
+      if (item.resetAt <= now) mapsRequestLimits.delete(requestKey);
+    }
+  }
+  if (state.count > limit) throw fail('Too many map requests. Please wait and try again.', 429);
+}
+
+function validMapsPoint(value) {
+  return typeof value === 'object'
+    && value !== null
+    && Number.isFinite(value.latitude)
+    && value.latitude >= -90
+    && value.latitude <= 90
+    && Number.isFinite(value.longitude)
+    && value.longitude >= -180
+    && value.longitude <= 180;
+}
+
+async function requestGoogleMaps(url, init) {
+  let response;
+  try {
+    response = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
+  } catch (error) {
+    if (error?.name === 'TimeoutError') {
+      throw fail('Google Maps took too long to respond. Please try again.', 504);
+    }
+    throw fail('Google Maps is temporarily unreachable. Please try again.', 502);
+  }
+  if (!response.ok) {
+    console.error(`Google Maps request failed with status ${response.status}.`);
+    throw fail(
+      response.status === 429
+        ? 'Google Maps is temporarily rate-limited. Please try again shortly.'
+        : 'Google Maps could not complete this request. Check the server key and enabled APIs.',
+      response.status === 429 ? 503 : 502,
+    );
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw fail('Google Maps returned an unreadable response.', 502);
+  }
+}
 
 function sendJson(response, status, value, headers = {}) {
   response.writeHead(status, {
@@ -634,6 +693,199 @@ async function route(request, response, url) {
     await pool.query('select 1');
     sendJson(response, 200, { status: 'ok' });
     return;
+  }
+
+  if (method === 'POST' && pathname === '/api/maps/location-search') {
+    const clientAddress = request.socket.remoteAddress ?? 'unknown';
+    enforceMapsRequestLimit(clientAddress, 'tomtom-location-search', 90);
+    if (!config.tomtomSearchApiKey) {
+      throw fail('TomTom Search is not configured on the API server.', 503);
+    }
+    const body = await readJson(request);
+    const query = typeof body.query === 'string' ? body.query.trim() : '';
+    if (query.length < 3 || query.length > 200
+      || !['Pakistan', 'Worldwide'].includes(body.scope)
+      || (body.proximity !== null && body.proximity !== undefined
+        && !validMapsPoint(body.proximity))) {
+      throw fail('Enter a search of 3 to 200 characters and a valid map search scope.');
+    }
+    const suggestions = await searchTomTomLocations({
+      query,
+      proximity: body.proximity,
+      scope: body.scope,
+      apiKey: config.tomtomSearchApiKey,
+    });
+    sendJson(response, 200, { suggestions });
+    return;
+  }
+
+  if (method === 'POST' && pathname.startsWith('/api/maps/')) {
+    const user = await requireUser(request);
+    await ensureAccountCanUseServices(user.id);
+    if (!config.googleMapsServerApiKey) {
+      throw fail('Google Maps server integration is not configured.', 503);
+    }
+
+    if (pathname === '/api/maps/routes') {
+      enforceMapsRequestLimit(user.id, 'routes', 30);
+      const body = await readJson(request);
+      const modes = { DRIVING: 'DRIVE', WALKING: 'WALK', BICYCLING: 'BICYCLE' };
+      if (!validMapsPoint(body.origin) || !validMapsPoint(body.destination)
+        || !Object.hasOwn(modes, body.travelMode)) {
+        throw fail('Provide valid pickup, destination, and travel mode values.');
+      }
+      const result = await requestGoogleMaps(
+        'https://routes.googleapis.com/directions/v2:computeRoutes',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': config.googleMapsServerApiKey,
+            'X-Goog-FieldMask':
+              'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
+          },
+          body: JSON.stringify({
+            origin: { location: { latLng: {
+              latitude: body.origin.latitude,
+              longitude: body.origin.longitude,
+            } } },
+            destination: { location: { latLng: {
+              latitude: body.destination.latitude,
+              longitude: body.destination.longitude,
+            } } },
+            travelMode: modes[body.travelMode],
+            computeAlternativeRoutes: true,
+            regionCode: 'PK',
+            languageCode: 'en',
+            units: 'METRIC',
+            ...(body.travelMode === 'DRIVING' ? { routingPreference: 'TRAFFIC_AWARE' } : {}),
+          }),
+        },
+      );
+      if (!Array.isArray(result.routes)) {
+        throw fail('Google Maps did not return a route for these locations.', 404);
+      }
+      const routes = result.routes.slice(0, 3).flatMap((route) => {
+        const distanceMeters = route?.distanceMeters;
+        const durationMillis = typeof route?.duration === 'string'
+          ? Number.parseFloat(route.duration.replace(/s$/, '')) * 1000
+          : NaN;
+        const encodedPolyline = route?.polyline?.encodedPolyline;
+        if (!Number.isFinite(distanceMeters) || distanceMeters <= 0
+          || !Number.isFinite(durationMillis) || durationMillis <= 0
+          || typeof encodedPolyline !== 'string' || encodedPolyline.length === 0) return [];
+        return [{ distanceMeters, durationMillis, encodedPolyline }];
+      });
+      if (routes.length === 0) {
+        throw fail('Google Maps did not return a usable route.', 404);
+      }
+      sendJson(response, 200, { routes });
+      return;
+    }
+
+    if (pathname === '/api/maps/places/autocomplete') {
+      enforceMapsRequestLimit(user.id, 'autocomplete', 90);
+      const body = await readJson(request);
+      const input = typeof body.input === 'string' ? body.input.trim() : '';
+      if (input.length < 3 || input.length > 200
+        || typeof body.sessionToken !== 'string'
+        || !/^[A-Za-z0-9._-]{8,128}$/.test(body.sessionToken)
+        || !['Pakistan', 'Worldwide'].includes(body.scope)) {
+        throw fail('Enter a search of 3 to 200 characters and a valid map search scope.');
+      }
+      const result = await requestGoogleMaps(
+        'https://places.googleapis.com/v1/places:autocomplete',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': config.googleMapsServerApiKey,
+            'X-Goog-FieldMask':
+              'suggestions.placePrediction.placeId,suggestions.placePrediction.text.text,suggestions.placePrediction.structuredFormat.mainText.text,suggestions.placePrediction.structuredFormat.secondaryText.text',
+          },
+          body: JSON.stringify({
+            input,
+            sessionToken: body.sessionToken,
+            languageCode: 'en',
+            regionCode: 'PK',
+            ...(body.scope === 'Pakistan' ? { includedRegionCodes: ['PK'] } : {}),
+          }),
+        },
+      );
+      const suggestions = Array.isArray(result.suggestions)
+        ? result.suggestions.flatMap((item) => {
+          const prediction = item?.placePrediction;
+          if (typeof prediction?.placeId !== 'string'
+            || typeof prediction?.text?.text !== 'string') return [];
+          return [{
+            id: prediction.placeId,
+            label: prediction.structuredFormat?.mainText?.text ?? prediction.text.text,
+            detail: prediction.structuredFormat?.secondaryText?.text ?? '',
+          }];
+        })
+        : [];
+      sendJson(response, 200, { suggestions });
+      return;
+    }
+
+    if (pathname === '/api/maps/places/details') {
+      enforceMapsRequestLimit(user.id, 'place-details', 30);
+      const body = await readJson(request);
+      if (typeof body.placeId !== 'string'
+        || !/^[A-Za-z0-9_-]{1,255}$/.test(body.placeId)
+        || typeof body.sessionToken !== 'string'
+        || !/^[A-Za-z0-9._-]{8,128}$/.test(body.sessionToken)) {
+        throw fail('Provide a valid Google Place ID and search session token.');
+      }
+      const url = new URL(
+        `https://places.googleapis.com/v1/places/${encodeURIComponent(body.placeId)}`,
+      );
+      url.searchParams.set('sessionToken', body.sessionToken);
+      url.searchParams.set('languageCode', 'en');
+      url.searchParams.set('regionCode', 'PK');
+      const place = await requestGoogleMaps(url, {
+        headers: {
+          'X-Goog-Api-Key': config.googleMapsServerApiKey,
+          'X-Goog-FieldMask': 'id,displayName,formattedAddress,location',
+        },
+      });
+      if (!validMapsPoint({
+        latitude: place.location?.latitude,
+        longitude: place.location?.longitude,
+      })) {
+        throw fail('Google Maps did not return coordinates for that place.', 404);
+      }
+      sendJson(response, 200, {
+        label: place.formattedAddress || place.displayName?.text || '',
+        point: {
+          latitude: place.location.latitude,
+          longitude: place.location.longitude,
+        },
+      });
+      return;
+    }
+
+    if (pathname === '/api/maps/geocode/reverse') {
+      enforceMapsRequestLimit(user.id, 'reverse-geocode', 30);
+      const body = await readJson(request);
+      if (!validMapsPoint(body.point)) {
+        throw fail('Provide valid latitude and longitude coordinates.');
+      }
+      const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+      url.searchParams.set('latlng', `${body.point.latitude},${body.point.longitude}`);
+      url.searchParams.set('region', 'pk');
+      url.searchParams.set('key', config.googleMapsServerApiKey);
+      const result = await requestGoogleMaps(url);
+      const address = result.status === 'OK' && Array.isArray(result.results)
+        ? result.results[0]?.formatted_address
+        : undefined;
+      if (typeof address !== 'string' || !address) {
+        throw fail('Google Maps could not find a street address for this pin.', 404);
+      }
+      sendJson(response, 200, { address });
+      return;
+    }
+    throw fail('Map service route not found.', 404);
   }
 
   if (method === 'GET' && pathname === '/api/driver/photo') {

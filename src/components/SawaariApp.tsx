@@ -18,8 +18,17 @@ import {
 } from 'react-native';
 import { Pressable, Text, TextInput } from './AppText';
 import RideMap from './RideMap';
-import type { MapPoint, NearbyMapDriver } from './ride-map.types';
-import { loadGoogleMaps } from './google-maps';
+import type {
+  MapPoint,
+  MapType,
+  NearbyMapDriver,
+  RideRouteOption,
+  RouteTravelMode,
+} from './ride-map.types';
+import {
+  getMapboxDirections,
+  reverseMapboxGeocode,
+} from './mapbox-services';
 import { useInAppNotice } from './InAppNoticeProvider';
 import AccountPanel from './AccountPanel';
 import { useAuth } from '../lib/AuthContext';
@@ -40,7 +49,8 @@ type PlaceSuggestion = {
   detail: string;
   country: string;
   point: Coordinate | null;
-  googlePrediction?: google.maps.places.PlacePrediction;
+  precisionNote?: string;
+  googlePlaceId?: string;
 };
 
 type Ride = {
@@ -86,7 +96,7 @@ type RideServerStatus = {
 };
 
 const STORAGE_KEY = '@sawaari/rides';
-const GOOGLE_MAPS_WEB_CONFIGURED = Boolean(process.env.EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY);
+const MAPBOX_WEB_CONFIGURED = Boolean(process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN);
 const WHATSAPP_SUPPORT_NUMBER = (process.env.EXPO_PUBLIC_WHATSAPP_SUPPORT_NUMBER ?? '')
   .replace(/\D/g, '');
 const DEFAULT_REGION: MapViewport = {
@@ -125,6 +135,63 @@ function coordinatesLabel(point: Coordinate | null) {
   return `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`;
 }
 
+function newPlaceSessionToken() {
+  return `sawaari-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+}
+
+function decodeGooglePolyline(encoded: string): Coordinate[] {
+  const points: Coordinate[] = [];
+  let index = 0;
+  let latitude = 0;
+  let longitude = 0;
+  const readDelta = () => {
+    let result = 0;
+    let shift = 0;
+    let byte = 0;
+    do {
+      if (index >= encoded.length) throw new Error('Google Maps returned an incomplete route line.');
+      byte = encoded.charCodeAt(index) - 63;
+      index += 1;
+      if (byte < 0 || byte > 63 || shift > 30) {
+        throw new Error('Google Maps returned an invalid route line.');
+      }
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    return result & 1 ? ~(result >> 1) : result >> 1;
+  };
+  while (index < encoded.length) {
+    latitude += readDelta();
+    longitude += readDelta();
+    const point = { latitude: latitude / 1e5, longitude: longitude / 1e5 };
+    if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)
+      || Math.abs(point.latitude) > 90 || Math.abs(point.longitude) > 180) {
+      throw new Error('Google Maps returned invalid route coordinates.');
+    }
+    points.push(point);
+  }
+  if (points.length < 2) throw new Error('Google Maps returned an incomplete route.');
+  return points;
+}
+
+function formatRouteDuration(durationMillis: number) {
+  const minutes = Math.max(1, Math.round(durationMillis / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining ? `${hours} hr ${remaining} min` : `${hours} hr`;
+}
+
+function isGoogleRouteResponse(value: unknown): value is {
+  routes: { distanceMeters: number; durationMillis: number; encodedPolyline: string }[];
+} {
+  return isRecord(value) && Array.isArray(value.routes)
+    && value.routes.every((route) => isRecord(route)
+      && typeof route.distanceMeters === 'number' && Number.isFinite(route.distanceMeters)
+      && typeof route.durationMillis === 'number' && Number.isFinite(route.durationMillis)
+      && typeof route.encodedPolyline === 'string');
+}
+
 function estimateStraightLineDistance(pickup: Coordinate, destination: Coordinate) {
   const radians = (degrees: number) => degrees * Math.PI / 180;
   const latitudeDelta = radians(destination.latitude - pickup.latitude);
@@ -153,16 +220,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function photonSuggestions(value: unknown, scope: SearchScope): PlaceSuggestion[] {
   if (!isRecord(value) || !Array.isArray(value.features)) return [];
 
-  return value.features.flatMap((feature, index) => {
-    if (!isRecord(feature) || !isRecord(feature.geometry) || !Array.isArray(feature.geometry.coordinates)
-      || !isRecord(feature.properties)) return [];
+  const suggestions = value.features.flatMap((feature, index) => {
+    if (!isRecord(feature) || !isRecord(feature.geometry)
+      || !Array.isArray(feature.geometry.coordinates) || !isRecord(feature.properties)) return [];
     const [longitude, latitude] = feature.geometry.coordinates;
     if (typeof longitude !== 'number' || !Number.isFinite(longitude)
-      || typeof latitude !== 'number' || !Number.isFinite(latitude)) return [];
-
+      || longitude < -180 || longitude > 180
+      || typeof latitude !== 'number' || !Number.isFinite(latitude)
+      || latitude < -90 || latitude > 90) return [];
     const properties = feature.properties;
     const country = typeof properties.country === 'string' ? properties.country : '';
     if (scope === 'Pakistan' && country !== 'Pakistan') return [];
+    const featureType = typeof properties.type === 'string' ? properties.type.toLowerCase() : '';
+    const osmValue = typeof properties.osm_value === 'string' ? properties.osm_value.toLowerCase() : '';
+    if (['city', 'town', 'village', 'municipality', 'county', 'state', 'country']
+      .includes(featureType) || ['city', 'town', 'village', 'administrative'].includes(osmValue)) {
+      return [];
+    }
     const labelParts = [
       properties.name,
       properties.housenumber,
@@ -170,7 +244,6 @@ function photonSuggestions(value: unknown, scope: SearchScope): PlaceSuggestion[
     ].filter((part): part is string => typeof part === 'string' && part.length > 0);
     const uniqueLabelParts = [...new Set(labelParts)];
     if (uniqueLabelParts.length === 0) return [];
-
     const context = [
       properties.district,
       properties.city,
@@ -181,13 +254,69 @@ function photonSuggestions(value: unknown, scope: SearchScope): PlaceSuggestion[
     const id = typeof properties.osm_id === 'number' || typeof properties.osm_id === 'string'
       ? String(properties.osm_id)
       : String(index);
-
+    const isStreet = featureType === 'street' || ['road', 'primary', 'secondary', 'residential', 'service']
+      .includes(osmValue) || properties.osm_key === 'highway';
+    const isArea = featureType === 'locality' || ['locality', 'neighbourhood', 'neighborhood']
+      .includes(osmValue);
     return [{
       id: `${properties.osm_type ?? 'place'}-${id}`,
       label: uniqueLabelParts.join(', '),
       detail: [...new Set(context)].join(', ') || 'Place',
       country,
       point: { latitude, longitude },
+      precisionNote: isStreet
+        ? 'Approximate · street location'
+        : isArea ? 'Approximate · area location' : 'OpenStreetMap point · verify on map',
+    }];
+  });
+  return suggestions.sort((left, right) => {
+    const leftApproximate = left.precisionNote?.startsWith('Approximate') ? 1 : 0;
+    const rightApproximate = right.precisionNote?.startsWith('Approximate') ? 1 : 0;
+    return leftApproximate - rightApproximate;
+  });
+}
+
+async function searchTomTomWebLocations(
+  query: string,
+  scope: SearchScope,
+  proximity: Coordinate,
+  signal: AbortSignal,
+): Promise<PlaceSuggestion[]> {
+  const endpoint = __DEV__
+    ? 'http://127.0.0.1:3211/api/maps/location-search'
+    : '/api/maps/location-search';
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: __DEV__ ? 'omit' : 'same-origin',
+    signal,
+    body: JSON.stringify({ query, scope, proximity }),
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = isRecord(payload) && typeof payload.error === 'string'
+      ? payload.error
+      : `TomTom Search failed (${response.status}).`;
+    throw new Error(message);
+  }
+  if (!isRecord(payload) || !Array.isArray(payload.suggestions)) {
+    throw new Error('TomTom Search returned an invalid response.');
+  }
+  return payload.suggestions.flatMap((item): PlaceSuggestion[] => {
+    if (!isRecord(item) || typeof item.id !== 'string'
+      || typeof item.label !== 'string' || typeof item.detail !== 'string'
+      || !isCoordinate(item.point)
+      || typeof item.approximate !== 'boolean'
+      || typeof item.resultType !== 'string') return [];
+    return [{
+      id: `tomtom-${item.id}`,
+      label: item.label,
+      detail: item.detail,
+      country: scope === 'Pakistan' ? 'Pakistan' : '',
+      point: item.point,
+      precisionNote: item.approximate
+        ? 'Approximate · street location'
+        : item.resultType === 'POI' ? 'Place point' : 'Address point',
     }];
   });
 }
@@ -235,6 +364,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const router = useRouter();
   const { notify, confirm } = useInAppNotice();
   const { configured, session } = useAuth();
+  const hasSignedInUser = Boolean(session?.user);
   const { width } = useWindowDimensions();
   const wideLayout = Platform.OS === 'web' && width >= 980;
   const [region, setRegion] = useState(DEFAULT_REGION);
@@ -244,11 +374,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [destinationAddress, setDestinationAddress] = useState('');
   const [searchField, setSearchField] = useState<RouteField | null>(null);
   const [mapPickField, setMapPickField] = useState<RouteField | null>(null);
+  const [mapPickPoint, setMapPickPoint] = useState<Coordinate | null>(null);
   const [mapPickAddress, setMapPickAddress] = useState('');
+  const [mapType, setMapType] = useState<MapType>('standard');
+  const [mapFullscreen, setMapFullscreen] = useState(false);
   const [searchScope, setSearchScope] = useState<SearchScope>('Pakistan');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceSuggestion[]>([]);
-  const placeSearchSession = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
+  const nativePlaceSessionToken = useRef<string | null>(null);
   const [searchingPlaces, setSearchingPlaces] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [vehicle, setVehicle] = useState<Vehicle>('Car');
@@ -274,6 +407,13 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [addressError, setAddressError] = useState('');
   const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
   const [routeError, setRouteError] = useState('');
+  const [routeTravelMode, setRouteTravelMode] = useState<RouteTravelMode>('DRIVING');
+  const [routeOptions, setRouteOptions] = useState<RideRouteOption[]>([]);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const selectedRouteIndexRef = useRef(0);
+  const customOfferRef = useRef(false);
+  const vehicleRef = useRef<Vehicle>('Car');
   const [nearbyDrivers, setNearbyDrivers] = useState<Record<string, NearbyDriver[]>>({});
   const [rideStatuses, setRideStatuses] = useState<Record<string, RideServerStatus>>({});
   const [tripMapRegions, setTripMapRegions] = useState<Record<string, MapViewport>>({});
@@ -286,8 +426,132 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       || Math.abs(pickup.longitude - destination.longitude) >= 0.0001)
     ? estimateStraightLineDistance(pickup, destination)
     : null;
-  const fareDistanceKm = Platform.OS === 'web' ? routeDistanceKm : directDistanceKm;
+  const fareDistanceKm = routeDistanceKm ?? directDistanceKm;
   const suggestedFare = fareDistanceKm === null ? null : estimateFare(fareDistanceKm, vehicle);
+  const routeStatusError = Platform.OS === 'web' && !MAPBOX_WEB_CONFIGURED
+    && pickup && destination
+    ? 'Mapbox is not configured for this website. Add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to .env to calculate real routes.'
+    : routeError;
+
+  useEffect(() => {
+    selectedRouteIndexRef.current = selectedRouteIndex;
+    customOfferRef.current = customOffer;
+    vehicleRef.current = vehicle;
+  }, [customOffer, selectedRouteIndex, vehicle]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || screen !== 'Ride') return undefined;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      if (!pickup || !destination) {
+        setRouteOptions([]);
+        setRouteDistanceKm(null);
+        setRouteError('');
+        setRouteLoading(false);
+        return;
+      }
+      if (!hasSignedInUser) {
+        setRouteOptions([]);
+        setRouteDistanceKm(null);
+        setRouteError('Sign in to calculate a Google Maps route.');
+        setRouteLoading(false);
+        return;
+      }
+      setRouteLoading(true);
+      setRouteOptions([]);
+      setRouteDistanceKm(null);
+      setRouteError('');
+      setSelectedRouteIndex(0);
+      void apiRequest<unknown>('/maps/routes', {
+        method: 'POST',
+        signal: controller.signal,
+        body: JSON.stringify({ origin: pickup, destination, travelMode: routeTravelMode }),
+      })
+        .then((response) => {
+          if (!isGoogleRouteResponse(response)) {
+            throw new Error('Google Maps returned an invalid route response.');
+          }
+          const options = response.routes.flatMap((route) => {
+            if (route.distanceMeters <= 0 || route.durationMillis <= 0) return [];
+            return [{
+              distanceMeters: route.distanceMeters,
+              durationMillis: route.durationMillis,
+              path: decodeGooglePolyline(route.encodedPolyline),
+            }];
+          });
+          if (!options.length) throw new Error('Google Maps could not find a route.');
+          setRouteOptions(options);
+          const index = Math.min(selectedRouteIndexRef.current, options.length - 1);
+          setSelectedRouteIndex(index);
+          const distanceKm = options[index].distanceMeters / 1000;
+          setRouteDistanceKm(distanceKm);
+          if (!customOfferRef.current) {
+            setOffer(String(estimateFare(distanceKm, vehicleRef.current)));
+          }
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          setRouteError(error instanceof Error ? error.message : 'Could not calculate the Google Maps route.');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setRouteLoading(false);
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [destination, hasSignedInUser, pickup, routeTravelMode, screen]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || screen !== 'Ride') return undefined;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      if (!pickup || !destination) {
+        setRouteOptions([]);
+        setRouteDistanceKm(null);
+        setRouteError('');
+        setRouteLoading(false);
+        return;
+      }
+      if (!MAPBOX_WEB_CONFIGURED) {
+        setRouteOptions([]);
+        setRouteDistanceKm(null);
+        setRouteError('Mapbox is not configured. Add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to .env to calculate a road route.');
+        setRouteLoading(false);
+        return;
+      }
+      setRouteLoading(true);
+      setRouteOptions([]);
+      setRouteDistanceKm(null);
+      setRouteError('');
+      setSelectedRouteIndex(0);
+      void getMapboxDirections(pickup, destination, routeTravelMode, controller.signal)
+        .then((options) => {
+          if (controller.signal.aborted) return;
+          if (options.length === 0) throw new Error('Mapbox could not find a route for these locations.');
+          setRouteOptions(options);
+          const index = Math.min(selectedRouteIndexRef.current, options.length - 1);
+          setSelectedRouteIndex(index);
+          const distanceKm = options[index].distanceMeters / 1000;
+          setRouteDistanceKm(distanceKm);
+          if (!customOfferRef.current) {
+            setOffer(String(estimateFare(distanceKm, vehicleRef.current)));
+          }
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          setRouteError(error instanceof Error ? error.message : 'Could not calculate the Mapbox route.');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setRouteLoading(false);
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [destination, pickup, routeTravelMode, screen]);
 
   useEffect(() => {
     let active = true;
@@ -463,66 +727,92 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     if (!searchField || query.length < 3) return undefined;
 
     const controller = new AbortController();
+    let searchRequestTimeout: ReturnType<typeof setTimeout> | null = null;
+    let searchTimedOut = false;
     const timeout = setTimeout(() => {
       setSearchingPlaces(true);
       setSearchError('');
-      if (Platform.OS === 'web' && GOOGLE_MAPS_WEB_CONFIGURED) {
-        void loadGoogleMaps()
-          .then(async (mapsApi) => {
-            const places = await mapsApi.maps.importLibrary('places') as google.maps.PlacesLibrary;
+      if (Platform.OS === 'web') {
+        searchRequestTimeout = setTimeout(() => {
+          searchTimedOut = true;
+          controller.abort();
+        }, 15000);
+        const searchCenter = searchField === 'destination' ? pickup : destination;
+        const proximity = searchCenter ?? { latitude: region.latitude, longitude: region.longitude };
+        void searchTomTomWebLocations(query, searchScope, proximity, controller.signal)
+          .then(async (suggestions) => {
             if (controller.signal.aborted) return;
-            const sessionToken = placeSearchSession.current
-              ?? new places.AutocompleteSessionToken();
-            placeSearchSession.current = sessionToken;
-            const bounds = searchScope === 'Pakistan'
-              ? { north: 37.10, south: 23.69, east: 77.84, west: 60.87 }
-              : undefined;
-            const { suggestions } = await places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-              input: query,
-              language: 'en',
-              region: 'pk',
-              sessionToken,
-              ...(bounds ? { locationRestriction: bounds, includedRegionCodes: ['pk'] } : {}),
+            if (suggestions.length > 0) return suggestions;
+            const params = new URLSearchParams({ q: query, limit: '10', lang: 'en' });
+            if (searchScope === 'Pakistan') params.set('bbox', PAKISTAN_SEARCH_BOUNDS);
+            params.set('lat', String(proximity.latitude));
+            params.set('lon', String(proximity.longitude));
+            const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, {
+              signal: controller.signal,
             });
-            if (controller.signal.aborted) return;
-            setSearchResults(suggestions.flatMap((suggestion) => {
-              const prediction = suggestion.placePrediction;
-              if (!prediction) return [];
-              return [{
-                id: prediction.placeId,
-                label: prediction.mainText?.text ?? prediction.text.text,
-                detail: prediction.secondaryText?.text ?? '',
-                country: searchScope === 'Pakistan' ? 'Pakistan' : '',
-                point: null,
-                googlePrediction: prediction,
-              }];
-            }));
+            if (!response.ok) throw new Error(`OpenStreetMap search failed (${response.status}).`);
+            return photonSuggestions(await response.json() as unknown, searchScope);
+          })
+          .then((suggestions) => {
+            if (!controller.signal.aborted) setSearchResults(suggestions ?? []);
           })
           .catch((error: unknown) => {
-            if (controller.signal.aborted) return;
-            setSearchError(error instanceof Error
-              ? error.message
-              : 'Could not search Google Maps places. Check your connection and API settings.');
+            if (controller.signal.aborted && !searchTimedOut) return;
+            setSearchError(searchTimedOut
+              ? 'Location search timed out. Try again.'
+              : error instanceof Error
+                ? error.message
+                : 'Could not search locations. Check your connection and try again.');
             setSearchResults([]);
           })
           .finally(() => {
-            if (!controller.signal.aborted) setSearchingPlaces(false);
+            if (searchRequestTimeout !== null) clearTimeout(searchRequestTimeout);
+            if (!controller.signal.aborted || searchTimedOut) setSearchingPlaces(false);
           });
         return;
       }
 
-      const params = new URLSearchParams({
-        q: query,
-        limit: '10',
-        lang: 'en',
-      });
+      if (hasSignedInUser) {
+          const sessionToken = nativePlaceSessionToken.current ?? newPlaceSessionToken();
+          nativePlaceSessionToken.current = sessionToken;
+          void apiRequest<{
+            suggestions: { id: string; label: string; detail: string }[];
+          }>('/maps/places/autocomplete', {
+            method: 'POST',
+            signal: controller.signal,
+            body: JSON.stringify({ input: query, scope: searchScope, sessionToken }),
+          })
+            .then(({ suggestions }) => {
+              if (controller.signal.aborted) return;
+              setSearchResults(suggestions.map((suggestion) => ({
+                id: suggestion.id,
+                label: suggestion.label,
+                detail: suggestion.detail,
+                country: searchScope === 'Pakistan' ? 'Pakistan' : '',
+                point: null,
+                googlePlaceId: suggestion.id,
+              })));
+            })
+            .catch((error: unknown) => {
+              if (controller.signal.aborted) return;
+              setSearchError(error instanceof Error
+                ? error.message
+                : 'Could not search Google Maps places. Check server key and API settings.');
+              setSearchResults([]);
+            })
+            .finally(() => {
+              if (!controller.signal.aborted) setSearchingPlaces(false);
+            });
+          return;
+      }
+
+      const params = new URLSearchParams({ q: query, limit: '10', lang: 'en' });
       if (searchScope === 'Pakistan') params.set('bbox', PAKISTAN_SEARCH_BOUNDS);
       const searchCenter = searchField === 'destination' ? pickup : destination;
       if (searchCenter) {
         params.set('lat', String(searchCenter.latitude));
         params.set('lon', String(searchCenter.longitude));
       }
-
       void fetch(`https://photon.komoot.io/api/?${params.toString()}`, { signal: controller.signal })
         .then(async (response) => {
           if (!response.ok) throw new Error(`Place search failed (${response.status}).`);
@@ -543,9 +833,10 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
 
     return () => {
       clearTimeout(timeout);
+      if (searchRequestTimeout !== null) clearTimeout(searchRequestTimeout);
       controller.abort();
     };
-  }, [destination, pickup, searchField, searchQuery, searchScope]);
+  }, [destination, hasSignedInUser, pickup, region.latitude, region.longitude, searchField, searchQuery, searchScope]);
 
   const updateSuggestedFare = useCallback((
     nextPickup: Coordinate | null,
@@ -571,22 +862,38 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   }, []);
 
   const lookupAddress = useCallback(async (field: RouteField, point: Coordinate) => {
+    let label = '';
+    let lookupError = '';
     try {
-      const [address] = await Location.reverseGeocodeAsync(point);
-      const label = formatAddress(address);
-      if (!label) throw new Error('No address was returned for this location.');
-      if (field === 'pickup') setPickupAddress(label);
-      else setDestinationAddress(label);
-      setAddressError('');
-    } catch {
-      const label = `Address unavailable · ${coordinatesLabel(point)}`;
-      if (field === 'pickup') setPickupAddress(label);
-      else setDestinationAddress(label);
-      setAddressError('Could not look up a street address. The selected map coordinates are still saved.');
+      if (Platform.OS === 'web') {
+        label = await reverseMapboxGeocode(point);
+      } else if (hasSignedInUser) {
+        const response = await apiRequest<{ address: string }>('/maps/geocode/reverse', {
+          method: 'POST',
+          body: JSON.stringify({ point }),
+        });
+        label = response.address;
+      }
+    } catch (error: unknown) {
+      lookupError = error instanceof Error ? error.message : 'Reverse geocoding failed.';
     }
-  }, []);
+    if (Platform.OS !== 'web' && !label) {
+      try {
+        const [address] = await Location.reverseGeocodeAsync(point);
+        label = formatAddress(address);
+      } catch (error: unknown) {
+        lookupError = error instanceof Error ? error.message : 'Could not resolve this map location.';
+      }
+    }
+    if (field === 'pickup') setPickupAddress(label || `Address unavailable · ${coordinatesLabel(point)}`);
+    else setDestinationAddress(label || `Address unavailable · ${coordinatesLabel(point)}`);
+    setAddressError(label ? '' : lookupError || 'Could not find a street address; the map coordinates are saved.');
+  }, [hasSignedInUser]);
 
-  const locateCurrentPosition = useCallback(async (requestPermission = true) => {
+  const locateCurrentPosition = useCallback(async (
+    requestPermission = true,
+    setPickupAsLocation = true,
+  ) => {
     setLoadingLocation(true);
     try {
       const permission = requestPermission
@@ -614,12 +921,18 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         latitude: result.coords.latitude,
         longitude: result.coords.longitude,
       };
-      setPickup(point);
-      setRouteDistanceKm(null);
-      setRouteError('');
-      updateSuggestedFare(point, destination, vehicle);
-      setPickupAddress('Finding address...');
-      void lookupAddress('pickup', point);
+      if (setPickupAsLocation) {
+        setPickup(point);
+        setRouteOptions([]);
+        setRouteDistanceKm(null);
+        setRouteError('');
+        updateSuggestedFare(point, destination, vehicle);
+        setPickupAddress('Finding address...');
+        void lookupAddress('pickup', point);
+      } else if (mapPickField) {
+        setMapPickPoint(point);
+        setMapPickAddress('');
+      }
       setSearchField(null);
       focusMap(point);
     } catch (error: unknown) {
@@ -632,7 +945,15 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     } finally {
       setLoadingLocation(false);
     }
-  }, [destination, focusMap, lookupAddress, showMessage, updateSuggestedFare, vehicle]);
+  }, [
+    destination,
+    focusMap,
+    lookupAddress,
+    mapPickField,
+    showMessage,
+    updateSuggestedFare,
+    vehicle,
+  ]);
 
   useEffect(() => {
     if (screen !== 'Ride') return undefined;
@@ -663,13 +984,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     setSearchResults([]);
     setSearchingPlaces(false);
     setSearchError('');
-    placeSearchSession.current = null;
+    nativePlaceSessionToken.current = null;
   };
 
   const beginMapPick = () => {
     if (!searchField) return;
     Keyboard.dismiss();
     setMapPickField(searchField);
+    setMapPickPoint(null);
     setMapPickAddress(searchQuery.trim());
     setSearchField(null);
     setSearchQuery('');
@@ -678,14 +1000,9 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     setSearchError('');
   };
 
-  const confirmMapPick = () => {
-    if (!mapPickField) return;
-    const field = mapPickField;
-    const point = { latitude: region.latitude, longitude: region.longitude };
-    const address = mapPickAddress.trim();
+  const setRouteLocation = (field: RouteField, point: Coordinate, address = '') => {
     const nextPickup = field === 'pickup' ? point : pickup;
     const nextDestination = field === 'destination' ? point : destination;
-
     if (field === 'pickup') {
       setPickup(point);
       setPickupAddress(address || 'Finding address...');
@@ -693,14 +1010,24 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       setDestination(point);
       setDestinationAddress(address || 'Finding address...');
     }
-
+    setRouteOptions([]);
     setRouteDistanceKm(null);
     setRouteError('');
-    setAddressError('');
+    setSelectedRouteIndex(0);
     updateSuggestedFare(nextPickup, nextDestination, vehicle);
-    setMapPickField(null);
-    setMapPickAddress('');
     if (!address) void lookupAddress(field, point);
+  };
+
+  const confirmMapPick = () => {
+    if (!mapPickField) return;
+    const field = mapPickField;
+    const point = mapPickPoint ?? { latitude: region.latitude, longitude: region.longitude };
+    const address = mapPickAddress.trim();
+    setRouteLocation(field, point, address);
+    setAddressError('');
+    setMapPickField(null);
+    setMapPickPoint(null);
+    setMapPickAddress('');
   };
 
   const selectPlace = async (place: PlaceSuggestion) => {
@@ -709,46 +1036,41 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     let selectedPoint = place.point;
     let selectedLabel = place.label;
 
-    if (place.googlePrediction) {
+    if (place.googlePlaceId) {
       setSearchingPlaces(true);
       try {
-        const selectedPlace = place.googlePrediction.toPlace();
-        await selectedPlace.fetchFields({
-          fields: ['displayName', 'formattedAddress', 'location'],
-        });
-        const location = selectedPlace.location;
-        if (!location) throw new Error('Google Maps did not return coordinates for this place.');
-        selectedPoint = { latitude: location.lat(), longitude: location.lng() };
-        selectedLabel = selectedPlace.formattedAddress || selectedPlace.displayName || place.label;
+        const sessionToken = nativePlaceSessionToken.current;
+        if (!sessionToken) throw new Error('Place search expired. Search again to choose this result.');
+        const selected = await apiRequest<{ label: string; point: Coordinate }>(
+          '/maps/places/details',
+          {
+            method: 'POST',
+            body: JSON.stringify({ placeId: place.googlePlaceId, sessionToken }),
+          },
+        );
+        if (!isCoordinate(selected.point) || typeof selected.label !== 'string') {
+          throw new Error('Google Maps returned invalid place details.');
+        }
+        selectedPoint = selected.point;
+        selectedLabel = selected.label || place.label;
       } catch (error: unknown) {
-        setSearchError(error instanceof Error
-          ? error.message
-          : 'Could not load the selected place from Google Maps.');
+        setSearchError(error instanceof Error ? error.message : 'Could not load Google place details.');
         setSearchingPlaces(false);
-        placeSearchSession.current = null;
+        nativePlaceSessionToken.current = null;
         return;
       }
     }
-
     if (!selectedPoint) {
       setSearchError('This search result did not include a usable location.');
       setSearchingPlaces(false);
       return;
     }
+    if (place.precisionNote?.startsWith('Approximate')) {
+      selectedLabel = `${selectedLabel} (approximate)`;
+    }
     const nextPickup = field === 'pickup' ? selectedPoint : pickup;
     const nextDestination = field === 'destination' ? selectedPoint : destination;
-
-    if (field === 'pickup') {
-      setPickup(selectedPoint);
-      setPickupAddress(selectedLabel);
-    } else {
-      setDestination(selectedPoint);
-      setDestinationAddress(selectedLabel);
-    }
-
-    setRouteDistanceKm(null);
-    setRouteError('');
-    updateSuggestedFare(nextPickup, nextDestination, vehicle);
+    setRouteLocation(field, selectedPoint, selectedLabel);
     if (nextPickup && nextDestination) {
       setRegion({
         latitude: (nextPickup.latitude + nextDestination.latitude) / 2,
@@ -759,7 +1081,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     } else {
       focusMap(selectedPoint);
     }
-    placeSearchSession.current = null;
+    nativePlaceSessionToken.current = null;
     Keyboard.dismiss();
     setSearchField(null);
     setSearchQuery('');
@@ -1193,7 +1515,11 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     && !['completed', 'cancelled'].includes(activeRideStatus));
 
   const renderMap = () => (
-    <View style={[styles.mapFrame, wideLayout && styles.mapFrameWide]}>
+    <View style={[
+      styles.mapFrame,
+      wideLayout && styles.mapFrameWide,
+      mapFullscreen && styles.mapFrameFullscreen,
+    ]}>
       <RideMap
         region={region}
         pickup={activeRide && showActiveRide ? activeRide.pickup : pickup}
@@ -1208,25 +1534,112 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           ? rideStatuses[activeRide.id]?.driver_vehicle
           : null}
         locationGranted={locationGranted}
-        onRegionChange={setRegion}
-        onRouteDistanceChange={(distanceKm, error) => {
+        mapType={mapType}
+        previewPoint={mapPickPoint}
+        previewPointKind={mapPickField ?? 'pickup'}
+        routeOptions={activeRide && showActiveRide ? [] : routeOptions}
+        selectedRouteIndex={selectedRouteIndex}
+        travelMode={routeTravelMode}
+        onSelectRoute={(index) => {
+          setSelectedRouteIndex(index);
+          const route = routeOptions[index];
+          if (!route) return;
+          const distanceKm = route.distanceMeters / 1000;
           setRouteDistanceKm(distanceKm);
+          if (!customOffer) setOffer(String(estimateFare(distanceKm, vehicle)));
+        }}
+        onRegionChange={setRegion}
+        onMapPress={(point) => {
+          if (!mapPickField) return;
+          setMapPickPoint(point);
+          setMapPickAddress('');
+        }}
+        onMarkerDragEnd={showActiveRide ? undefined : (field, point) => {
+          if (mapPickField) {
+            if (field === mapPickField) setMapPickPoint(point);
+          } else {
+            setRouteLocation(field, point);
+          }
+        }}
+        onRouteOptionsChange={(options, error) => {
+          setRouteOptions(options);
           setRouteError(error ?? '');
-          if (customOffer) return;
-          setOffer(distanceKm === null ? '' : String(estimateFare(distanceKm, vehicle)));
+          setRouteLoading(Boolean(pickup && destination && options.length === 0 && !error));
+          if (options.length === 0) setSelectedRouteIndex(0);
+          const route = options[selectedRouteIndex] ?? options[0];
+          if (!route) return;
+          const distanceKm = route.distanceMeters / 1000;
+          setRouteDistanceKm(distanceKm);
+          if (!customOffer) setOffer(String(estimateFare(distanceKm, vehicle)));
+        }}
+        onRouteDistanceChange={(distanceKm, error) => {
+          if (Platform.OS === 'web') {
+            setRouteDistanceKm(distanceKm);
+            setRouteError(error ?? '');
+            setRouteLoading(Boolean(pickup && destination && distanceKm === null && !error));
+            if (!customOffer) {
+              setOffer(distanceKm === null ? '' : String(estimateFare(distanceKm, vehicle)));
+            }
+          }
         }}
       />
+      <View style={styles.mapControls}>
+        {!showActiveRide ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go to my current location"
+            disabled={loadingLocation}
+            onPress={() => void locateCurrentPosition(true, !mapPickField)}
+            style={styles.mapControlButton}
+          >
+            {loadingLocation
+              ? <ActivityIndicator size="small" color={COLORS.green} />
+              : <Ionicons name="locate-outline" size={19} color={COLORS.ink} />}
+          </Pressable>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={mapFullscreen ? 'Exit full-screen map' : 'Open full-screen map'}
+          onPress={() => setMapFullscreen((current) => !current)}
+          style={styles.mapControlButton}
+        >
+          <Ionicons
+            name={mapFullscreen ? 'contract-outline' : 'expand-outline'}
+            size={18}
+            color={COLORS.ink}
+          />
+        </Pressable>
+        {(Platform.OS !== 'web' || MAPBOX_WEB_CONFIGURED) ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Change map type from ${mapType}`}
+            onPress={() => {
+              const types: MapType[] = ['standard', 'satellite', 'hybrid', 'terrain'];
+              setMapType(types[(types.indexOf(mapType) + 1) % types.length]);
+            }}
+            style={styles.mapControlButton}
+          >
+            <Ionicons name="layers-outline" size={17} color={COLORS.ink} />
+            <Text style={styles.mapTypeLabel}>{mapType === 'standard' ? 'ROAD' : mapType.toUpperCase()}</Text>
+          </Pressable>
+        ) : null}
+      </View>
       {mapPickField ? (
         <>
-          <View pointerEvents="none" style={styles.mapPinMarker}>
-            <Ionicons name="location" size={38} color={COLORS.green} />
-            <View style={styles.mapPinDot} />
-          </View>
+          {!mapPickPoint ? (
+            <View pointerEvents="none" style={styles.mapPinMarker}>
+              <Ionicons name="location" size={38} color={COLORS.green} />
+              <View style={styles.mapPinDot} />
+            </View>
+          ) : null}
           <View style={styles.mapPickCard}>
             <Text style={styles.mapPickTitle}>
               Pin exact {mapPickField === 'pickup' ? 'pickup' : 'destination'}
             </Text>
-            <Text style={styles.mapPickHint}>Move the map until the pin is over the exact entrance.</Text>
+            <Text style={styles.mapPickHint}>Tap the map, drag the pin, or move the map.</Text>
+            <Text style={styles.mapCoordinateText}>
+              {coordinatesLabel(mapPickPoint ?? { latitude: region.latitude, longitude: region.longitude })}
+            </Text>
             <TextInput
               accessibilityLabel="Optional street address or house number"
               autoCapitalize="words"
@@ -1244,6 +1657,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                 onPress={() => {
                   Keyboard.dismiss();
                   setMapPickField(null);
+                  setMapPickPoint(null);
                   setMapPickAddress('');
                 }}
                 style={styles.mapPickCancel}
@@ -1334,7 +1748,6 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               setSearchResults([]);
               setSearchingPlaces(false);
               setSearchError('');
-              placeSearchSession.current = null;
             }}
             style={styles.searchBackButton}
           >
@@ -1445,15 +1858,18 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                 <View style={styles.searchResultCopy}>
                   <Text numberOfLines={2} style={styles.searchResultTitle}>{place.label}</Text>
                   <Text numberOfLines={1} style={styles.searchResultDetail}>{place.detail}</Text>
+                  {place.precisionNote ? (
+                    <Text numberOfLines={1} style={styles.searchResultPrecision}>{place.precisionNote}</Text>
+                  ) : null}
                 </View>
                 <Ionicons name="chevron-forward" size={17} color={COLORS.muted} />
               </Pressable>
             ))
           )}
           <Text style={styles.searchAttribution}>
-            {Platform.OS === 'web' && GOOGLE_MAPS_WEB_CONFIGURED
-              ? 'Place search by Google Maps Platform'
-              : 'Search by Photon · Data © OpenStreetMap contributors'}
+            {Platform.OS === 'web'
+              ? 'Search by TomTom · fallback data © OpenStreetMap contributors'
+              : hasSignedInUser ? 'Place search by Google Maps Platform' : 'Search by Photon · Data © OpenStreetMap contributors'}
           </Text>
         </ScrollView>
       </View>
@@ -1691,8 +2107,13 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
 
   const renderRideScreen = () => (
     <View style={[styles.rideScreen, wideLayout && styles.rideScreenWide]}>
-      <View style={[styles.mapColumn, wideLayout && styles.mapColumnWide]}>
-        <View style={styles.header}>
+      <View style={[
+        styles.mapColumn,
+        wideLayout && styles.mapColumnWide,
+        mapFullscreen && styles.mapColumnFullscreen,
+        mapFullscreen && wideLayout && styles.mapColumnFullscreenWide,
+      ]}>
+        {!mapFullscreen ? <View style={styles.header}>
           <View style={styles.brandLockup}>
             <View style={styles.brandMark}>
               <Ionicons name="navigate" size={19} color={COLORS.green} />
@@ -1716,10 +2137,10 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               <Ionicons name="person-outline" size={19} color={COLORS.green} />
             </Pressable>
           </View>
-        </View>
+        </View> : null}
         {renderMap()}
       </View>
-      <View style={[styles.bookingSheet, wideLayout && styles.bookingSheetWide]}>
+      {!mapFullscreen ? <View style={[styles.bookingSheet, wideLayout && styles.bookingSheetWide]}>
         {showActiveRide && activeRide ? renderActiveRidePanel(activeRide) : (
         <ScrollView
           style={[styles.bookingScroll, wideLayout && styles.bookingScrollWide]}
@@ -1759,6 +2180,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   <Text numberOfLines={1} style={[styles.routeValue, !pickup && styles.routePlaceholder]}>
                     {pickup ? addressOrCoordinates(pickupAddress, pickup) : 'Search for pickup address'}
                   </Text>
+                  {pickup ? <Text style={styles.routeCoordinates}>{coordinatesLabel(pickup)}</Text> : null}
                 </View>
                 {pickup ? (
                   <Ionicons name="checkmark-circle" size={19} color={COLORS.green} />
@@ -1784,6 +2206,9 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                       ? addressOrCoordinates(destinationAddress, destination)
                       : 'Search for destination address'}
                   </Text>
+                  {destination
+                    ? <Text style={styles.routeCoordinates}>{coordinatesLabel(destination)}</Text>
+                    : null}
                 </View>
                 {destination ? (
                   <Ionicons name="checkmark-circle" size={19} color={COLORS.green} />
@@ -1793,6 +2218,91 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               </Pressable>
             </View>
           </View>
+          {pickup && destination ? (
+            <View style={styles.routeOptionsCard}>
+              <View style={styles.routeModeRow}>
+                {([
+                  ['DRIVING', 'Drive', 'car-outline'],
+                  ['WALKING', 'Walk', 'walk-outline'],
+                  ['BICYCLING', 'Cycle', 'bicycle-outline'],
+                ] as const).map(([mode, label, icon]) => (
+                  <Pressable
+                    key={mode}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: routeTravelMode === mode }}
+                    onPress={() => {
+                      setRouteTravelMode(mode);
+                      setSelectedRouteIndex(0);
+                    }}
+                    style={[
+                      styles.routeModeButton,
+                      routeTravelMode === mode && styles.routeModeButtonSelected,
+                    ]}
+                  >
+                    <Ionicons
+                      name={icon}
+                      size={15}
+                      color={routeTravelMode === mode ? COLORS.white : COLORS.green}
+                    />
+                    <Text style={[
+                      styles.routeModeText,
+                      routeTravelMode === mode && styles.routeModeTextSelected,
+                    ]}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {routeOptions[selectedRouteIndex] ? (
+                <View style={styles.routeSummary}>
+                  <Text style={styles.routeSummaryLabel}>Selected route</Text>
+                  <Text style={styles.routeSummaryValue}>
+                    {(routeOptions[selectedRouteIndex].distanceMeters / 1000).toFixed(1)} km
+                    {' · '}
+                    {formatRouteDuration(routeOptions[selectedRouteIndex].durationMillis)}
+                  </Text>
+                </View>
+              ) : null}
+              {routeOptions.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.alternativeRouteList}
+                >
+                  {routeOptions.map((route, index) => (
+                    <Pressable
+                      key={`route-option-${index}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: selectedRouteIndex === index }}
+                      onPress={() => {
+                        setSelectedRouteIndex(index);
+                        const distanceKm = route.distanceMeters / 1000;
+                        setRouteDistanceKm(distanceKm);
+                        if (!customOffer) setOffer(String(estimateFare(distanceKm, vehicle)));
+                      }}
+                      style={[
+                        styles.alternativeRouteButton,
+                        selectedRouteIndex === index && styles.alternativeRouteButtonSelected,
+                      ]}
+                    >
+                      <Text style={[
+                        styles.alternativeRouteText,
+                        selectedRouteIndex === index && styles.alternativeRouteTextSelected,
+                      ]}>
+                        Route {index + 1} · {(route.distanceMeters / 1000).toFixed(1)} km · {formatRouteDuration(route.durationMillis)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
+              {routeLoading ? (
+                <View style={styles.routeLoadingRow}>
+                  <ActivityIndicator size="small" color={COLORS.green} />
+                  <Text style={styles.routeStatusText}>Calculating route…</Text>
+                </View>
+              ) : routeStatusError ? (
+                <Text accessibilityRole="alert" style={styles.routeStatusError}>{routeStatusError}</Text>
+              ) : null}
+            </View>
+          ) : null}
           {storageError ? <Text style={styles.errorBanner}>{storageError}</Text> : null}
           {addressError ? <Text style={styles.addressNotice}>{addressError}</Text> : null}
 
@@ -1863,7 +2373,9 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                 </Text>
                 <Text style={styles.fareEstimateNote}>
                   {Platform.OS === 'web'
-                    ? GOOGLE_MAPS_WEB_CONFIGURED ? 'Google road route' : 'OpenStreetMap road route'
+                    ? MAPBOX_WEB_CONFIGURED
+                      ? 'Mapbox road route'
+                      : 'Approximate direct distance; Mapbox route unavailable'
                     : 'Direct-distance estimate'} · {fareDistanceKm.toFixed(1)} km · fare estimate only.
                 </Text>
               </View>
@@ -1881,7 +2393,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             </View>
           ) : pickup && destination && Platform.OS === 'web' ? (
             <Text style={styles.fareEstimateNote}>
-              {routeError || 'Calculating Google Maps road route...'}
+              {routeStatusError || 'Calculating Mapbox road route...'}
             </Text>
           ) : (
             <Text style={styles.fareEstimateNote}>
@@ -1899,7 +2411,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           </Pressable>
         </ScrollView>
         )}
-      </View>
+      </View> : null}
       {activeRide
         && activeRideStatus === 'searching'
         && rideStatuses[activeRide.id]?.driver_offer_status === 'pending'
@@ -2377,6 +2889,15 @@ const styles = StyleSheet.create({
   },
   mapColumn: { flex: 1, minHeight: 0 },
   mapColumnWide: { flex: 1, flexBasis: 0, minWidth: 0 },
+  mapColumnFullscreen: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 20,
+  },
+  mapColumnFullscreenWide: { top: -22, right: -22, bottom: -22, left: -22 },
   header: {
     height: 72,
     paddingHorizontal: 18,
@@ -2434,6 +2955,40 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     borderRadius: 29,
   },
+  mapFrameFullscreen: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    margin: 0,
+    borderRadius: 0,
+  },
+  mapControls: {
+    position: 'absolute',
+    zIndex: 5,
+    top: 13,
+    right: 13,
+    gap: 8,
+  },
+  mapControlButton: {
+    minWidth: 43,
+    height: 43,
+    paddingHorizontal: 5,
+    borderRadius: 14,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    backgroundColor: COLORS.white,
+    elevation: 4,
+    shadowColor: '#07151E',
+    shadowOpacity: 0.13,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  mapTypeLabel: { color: COLORS.ink, fontSize: 7, fontWeight: '800', letterSpacing: 0.4 },
   mapLabel: {
     position: 'absolute',
     top: 13,
@@ -2527,6 +3082,7 @@ const styles = StyleSheet.create({
   },
   mapPickTitle: { color: COLORS.ink, fontSize: 13, fontWeight: '800' },
   mapPickHint: { marginTop: 3, color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  mapCoordinateText: { marginTop: 5, color: COLORS.green, fontSize: 9, fontWeight: '700' },
   mapPickInput: {
     minHeight: 42,
     marginTop: 9,
@@ -2686,6 +3242,7 @@ const styles = StyleSheet.create({
   searchResultCopy: { flex: 1 },
   searchResultTitle: { color: COLORS.ink, fontSize: 12, fontWeight: '700', lineHeight: 17 },
   searchResultDetail: { marginTop: 4, color: COLORS.muted, fontSize: 10 },
+  searchResultPrecision: { marginTop: 4, color: COLORS.orange, fontSize: 9, fontWeight: '700' },
   searchAttribution: {
     paddingVertical: 14,
     color: COLORS.muted,
@@ -2865,8 +3422,56 @@ const styles = StyleSheet.create({
   routeFieldCopy: { flex: 1, paddingRight: 8 },
   routeCaption: { fontSize: 8, fontWeight: '800', letterSpacing: 1.2, color: COLORS.green },
   routeValue: { marginTop: 4, fontSize: 12, fontWeight: '600', color: COLORS.ink },
+  routeCoordinates: { marginTop: 2, color: COLORS.muted, fontSize: 8, fontWeight: '500' },
   routePlaceholder: { fontWeight: '500', color: '#8996A1' },
   routeDivider: { height: 1, marginLeft: 9, backgroundColor: '#E9EFED' },
+  routeOptionsCard: {
+    marginTop: 9,
+    padding: 9,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    borderRadius: 15,
+    backgroundColor: COLORS.white,
+  },
+  routeModeRow: { flexDirection: 'row', gap: 7 },
+  routeModeButton: {
+    minHeight: 36,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 10,
+    backgroundColor: '#EEF6F3',
+  },
+  routeModeButtonSelected: { backgroundColor: COLORS.green },
+  routeModeText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
+  routeModeTextSelected: { color: COLORS.white },
+  routeSummary: {
+    marginTop: 8,
+    paddingHorizontal: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  routeSummaryLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },
+  routeSummaryValue: { color: COLORS.ink, fontSize: 11, fontWeight: '800' },
+  alternativeRouteList: { gap: 7, paddingTop: 8, paddingRight: 4 },
+  alternativeRouteButton: {
+    minHeight: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 9,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    borderRadius: 9,
+    backgroundColor: COLORS.white,
+  },
+  alternativeRouteButtonSelected: { borderColor: COLORS.green, backgroundColor: '#EAF7F3' },
+  alternativeRouteText: { color: COLORS.muted, fontSize: 9, fontWeight: '700' },
+  alternativeRouteTextSelected: { color: COLORS.green },
+  routeLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingTop: 8 },
+  routeStatusText: { color: COLORS.muted, fontSize: 9, fontWeight: '600' },
+  routeStatusError: { paddingTop: 8, color: COLORS.red, fontSize: 9, lineHeight: 14 },
   sectionHeader: { marginTop: 18, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { color: COLORS.ink, fontSize: 13, fontWeight: '800' },
   sectionHint: { color: COLORS.muted, fontSize: 10, fontWeight: '600' },

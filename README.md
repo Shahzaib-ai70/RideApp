@@ -7,12 +7,14 @@ The old `supabase/migrations/` SQL files are retained only as legacy reference. 
 ## Local development
 
 1. Install Node.js 22 and run `npm ci`.
-2. Copy `.env.example` to `.env`. Set `EXPO_PUBLIC_API_URL` to the API's public `/api` URL for native app builds, and add optional Google Maps keys if configured. Set `EXPO_PUBLIC_WHATSAPP_SUPPORT_NUMBER` to the official WhatsApp Business number in international format using digits only; leave it blank until the real number is available.
+2. Copy `.env.example` to `.env`. Set `EXPO_PUBLIC_API_URL` to the API's public `/api` URL for native app builds. Set `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN` to a URL-restricted Mapbox public token for the website, and set `TOMTOM_API_KEY_SERVER` to a TomTom Search key for local web location search. Keep the TomTom key server-only; it is used by a localhost-only proxy and is not included in the web bundle. Set `EXPO_PUBLIC_WHATSAPP_SUPPORT_NUMBER` to the official WhatsApp Business number in international format using digits only; leave it blank until the real number is available.
 3. Run `npm run web` for the local web preview or `npx expo start` for Expo Go.
 
 Web builds use the same-origin `/api` route. Native builds call `EXPO_PUBLIC_API_URL` (defaults to `https://sawaari.online/api`). A running VPS API and PostgreSQL database are required for user accounts, email verification, driver documents, and shared rides. The preview does not create fake accounts or drivers.
 
-The map uses Photon, OpenStreetMap, and OSRM public demo services unless Google Maps is configured. The web map code starts loading with the app instead of waiting for the map component's first render. Address search can only return house numbers present in OpenStreetMap data. Riders can choose an exact pickup or destination by moving the map pin and can enter a street address or house number manually; ride coordinates are saved even when reverse geocoding has no street address. Public OSM-backed services have usage limits and no production SLA, so map tile latency cannot be guaranteed; configure a restricted Google Maps key or another contracted provider for dependable production performance. Starter fare values are examples, not current market rates or live quotes.
+The website uses Mapbox GL JS for map rendering, reverse geocoding, and road directions. TomTom Search provides primary website autocomplete; Photon/OpenStreetMap is queried only when TomTom returns no acceptable location match. The native app keeps its existing map/provider path. Riders can choose pickup and destination from search, map taps, or draggable pins; actual route distance and duration feed the existing fare estimate. Location access still requires browser/device permission. Starter fare values are examples, not current market rates or live quotes.
+
+Start the local TomTom proxy in one terminal with `npm run map-search:dev`, then start Expo web in another with `npm run web`. The proxy binds only to `127.0.0.1`; do not expose it to the network. The production API uses the server-only `TOMTOM_API_KEY_SERVER` setting in `/etc/sawaari/api.env`.
 
 On the Ride page, Sawaari centers the map on the rider when location permission has already been granted. Otherwise, an in-page prompt lets the rider request location access; browser/device permission is still required. Ride and driver alerts and confirmations are displayed inside Sawaari rather than browser alert dialogs. Browser push notifications are not configured.
 
@@ -115,7 +117,9 @@ The GitHub Actions workflow builds the web app, typechecks and lints it, deploys
 | `VPS_SSH_PRIVATE_KEY` | Private deployment key; the matching public key goes on the VPS |
 | `VPS_KNOWN_HOSTS` | Verified SSH host-key line |
 | `VPS_PORT` | Optional SSH port, defaults to 22 |
-| `EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY` | Optional restricted Maps key |
+| `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN` | Required for the production website map; use a public token with URL restrictions for local and production domains |
+
+Set `TOMTOM_API_KEY_SERVER` in `/etc/sawaari/api.env` for production website location search. For a new VPS, the setup script prompts for this key without echoing it. Never set it as an `EXPO_PUBLIC_*` variable or include it in a client build.
 
 If GitHub Actions is unavailable, SSH to the VPS as the deployment account and run this from its cloned source directory. The deployment account must be able to write `/var/www/sawaari/dist/` and run the authorized API restart command. Set any optional public map or WhatsApp numbers in the shell before building; do not put database, SMTP, or admin secrets here.
 
@@ -195,6 +199,19 @@ The admin page is available at `https://sawaari.online/admin`. Its username and 
 
 Driver applications collect a legal name, vehicle category/make/model/year, CNIC, driving licence, vehicle registration, and vehicle photo. The CNIC and licence sides should be combined in one PDF or image per document type. Documents are stored privately; the app does not verify identities against NADRA or government databases. Do not upload real identity documents without a lawful basis, informed consent, appropriate retention/deletion rules, and security procedures.
 
-## Google Maps
+## Website map and location search
 
-Google Maps is optional. Configure the restricted web key in `.env` for Maps JavaScript, Places API (New), and Routes API. For native builds configure Android/iOS Maps SDKs, restrict the mobile key to package and bundle identifier `com.sawaari.pakistan`, and set `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`. The key is public in a client app; restrict it by platform and API.
+The website uses Mapbox GL JS for map rendering, Mapbox Directions for road routes, and Mapbox reverse geocoding for map pins. TomTom Search is the primary website autocomplete provider; queries are debounced and proxied through the server so its key stays private. When TomTom returns no acceptable match, the app requests Photon results from OpenStreetMap and labels street- or area-level results as approximate. Search selection uses the coordinates returned by the provider; it never invents coordinates or substitutes a city center. Map clicks and draggable pickup/destination pins continue to use reverse geocoding. The map includes street/satellite/outdoors styles, fullscreen, zoom controls, route alternatives, distance/time, nearby drivers, and the existing accepted-driver live location. The existing Socket.IO and ride data flows are not changed.
+
+Search quality varies by provider and area; neither provider guarantees every building, business, or house number. The shared Photon endpoint is best-effort and has no production SLA. Its results are visibly attributed to OpenStreetMap and street/area matches are marked approximate; review provider quotas, licensing, data-retention terms, and service policies before commercial use. For production volumes or stronger availability requirements, use a contracted provider or operate an appropriately licensed search service.
+
+1. Create an account and public access token at [Mapbox account tokens](https://account.mapbox.com/access-tokens/). Use a `pk.*` public token only. Never put an `sk.*` secret token into an Expo `EXPO_PUBLIC_*` variable or browser bundle.
+2. Add the public scopes needed for the map and directions (`styles:read`, `fonts:read`, and `directions:read`). Keep secret scopes disabled. Restrict the token to your local development URL and production site URL (for example `http://localhost:8081/*` and `https://sawaari.online/*`) before deploying. Mapbox GL JS displays the map data attribution automatically.
+3. For local development, set `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN=pk...` in your ignored `.env`, then restart with `npm run web`. The `.env.example` file is only a template.
+4. For GitHub deployment, add the same restricted token as the Actions repository secret `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN`. The workflow injects it when building the website. For a manual build, set that environment variable before `npm run build:web`; rebuild/redeploy after changing the token.
+
+Mapbox account signup offers a trial without a payment card, subject to current account eligibility and plan terms. The default trial token may not support custom URL restrictions; do not deploy an unrestricted trial token publicly. If the account does not allow creating a restricted token, use local testing only until a properly restricted token is available. Current included request/load quotas and billing rules change over time; check the [Mapbox pricing page](https://www.mapbox.com/pricing/) and account dashboard before use, set usage alerts, and monitor token usage.
+
+**Data and commercial-use limits:** Geocoding v6 defaults to temporary results, which Mapbox says may not be cached; permanent results require a payment method or an enterprise contract. This app persists selected pickup/destination labels and coordinates in ride records, so do not launch with temporary Geocoding results until Mapbox confirms the permitted retention/use or the account is configured for an eligible permanent-data option. Mapbox's [pricing terms](https://www.mapbox.com/pricing/) state a Commercial Application License is required for production or non-production vehicle usage. Obtain Mapbox's written confirmation/license for this ride-hailing use before launch. These are provider terms, not limitations that can be solved by a code change.
+
+The native app was not migrated as part of this web-provider replacement: it retains its current native map and Google-backed server endpoints. If enabling those native routes/search calls, configure the separate Android/iOS application-restricted keys and the VPS-only `GOOGLE_MAPS_SERVER_API_KEY` as documented in the server setup; never expose the VPS key to the browser.

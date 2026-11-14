@@ -1,7 +1,8 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
 
 export default ({ config }: ConfigContext): ExpoConfig => {
-  const googleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const androidGoogleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY;
+  const iosGoogleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY;
 
   return {
     ...config,
@@ -20,22 +21,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ios: {
       ...config.ios,
       bundleIdentifier: 'com.sawaari.pakistan',
-      config: {
-        ...config.ios?.config,
-        googleMapsApiKey,
-      },
     },
-    android: {
-      ...config.android,
-      package: 'com.sawaari.pakistan',
-      config: {
-        ...config.android?.config,
-        googleMaps: { apiKey: googleMapsApiKey },
-      },
-    },
+    android: { ...config.android, package: 'com.sawaari.pakistan' },
     plugins: [
       'expo-router',
       'expo-secure-store',
+      [
+        'react-native-maps',
+        {
+          ...(androidGoogleMapsApiKey ? { androidGoogleMapsApiKey } : {}),
+          ...(iosGoogleMapsApiKey ? { iosGoogleMapsApiKey } : {}),
+        },
+      ],
       ...(config.plugins ?? []),
       [
         'expo-location',
