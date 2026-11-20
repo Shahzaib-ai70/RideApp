@@ -20,6 +20,21 @@ create table if not exists email_verification_tokens (
 create index if not exists email_verification_tokens_expiry_idx
   on email_verification_tokens (expires_at);
 
+create table if not exists account_deletion_tokens (
+  token_hash text primary key,
+  email text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists account_deletion_tokens_expiry_idx
+  on account_deletion_tokens (expires_at);
+
+create table if not exists private_file_deletion_queue (
+  path text primary key,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists email_send_limits (
   email text primary key,
   window_started_at timestamptz not null default now(),
@@ -136,6 +151,17 @@ create index if not exists ride_requests_rider_idx
   on ride_requests (rider_id, created_at desc);
 create index if not exists ride_requests_driver_idx
   on ride_requests (driver_id, updated_at desc) where driver_id is not null;
+
+create table if not exists ride_messages (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid not null references ride_requests(id) on delete cascade,
+  sender_id uuid not null references app_users(id) on delete cascade,
+  body text not null check (char_length(body) between 1 and 2000),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ride_messages_request_idx
+  on ride_messages (request_id, created_at, id);
 
 create table if not exists driver_ratings (
   request_id uuid primary key references ride_requests(id) on delete cascade,

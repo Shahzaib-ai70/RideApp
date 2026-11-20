@@ -43,7 +43,6 @@ const config = {
   smtpUser: process.env.SMTP_USER ?? '',
   smtpPassword: process.env.SMTP_PASSWORD ?? '',
   smtpFrom: process.env.SMTP_FROM ?? '',
-  googleMapsServerApiKey: process.env.GOOGLE_MAPS_SERVER_API_KEY ?? '',
   tomtomSearchApiKey: process.env.TOMTOM_API_KEY_SERVER ?? '',
 };
 
@@ -100,32 +99,6 @@ function validMapsPoint(value) {
     && Number.isFinite(value.longitude)
     && value.longitude >= -180
     && value.longitude <= 180;
-}
-
-async function requestGoogleMaps(url, init) {
-  let response;
-  try {
-    response = await fetch(url, { ...init, signal: AbortSignal.timeout(10000) });
-  } catch (error) {
-    if (error?.name === 'TimeoutError') {
-      throw fail('Google Maps took too long to respond. Please try again.', 504);
-    }
-    throw fail('Google Maps is temporarily unreachable. Please try again.', 502);
-  }
-  if (!response.ok) {
-    console.error(`Google Maps request failed with status ${response.status}.`);
-    throw fail(
-      response.status === 429
-        ? 'Google Maps is temporarily rate-limited. Please try again shortly.'
-        : 'Google Maps could not complete this request. Check the server key and enabled APIs.',
-      response.status === 429 ? 503 : 502,
-    );
-  }
-  try {
-    return await response.json();
-  } catch {
-    throw fail('Google Maps returned an unreadable response.', 502);
-  }
 }
 
 function sendJson(response, status, value, headers = {}) {
@@ -299,6 +272,26 @@ function publicUser(user) {
 }
 
 async function issueEmailVerification(userId, email) {
+  await claimEmailSendPermit(email);
+  const token = randomBytes(32).toString('base64url');
+  await pool.query(
+    `insert into email_verification_tokens (token_hash, user_id, expires_at)
+     values ($1, $2, now() + interval '24 hours')
+     on conflict (token_hash) do nothing`,
+    [hashToken(token), userId],
+  );
+  const url = new URL('/auth/confirm', config.publicOrigin);
+  url.searchParams.set('token', token);
+  await mailer.sendMail({
+    from: config.smtpFrom,
+    to: email,
+    subject: 'Confirm your Sawaari account',
+    text: `Open this link to confirm your Sawaari account, then press Confirm account:\n\n${url.href}\n\nThis link expires in 24 hours.`,
+    html: `<h2>Confirm your Sawaari account</h2><p>Open the link below, then press <strong>Confirm account</strong> to verify your email.</p><p><a href="${url.href}">Open Sawaari</a></p><p>This link expires in 24 hours.</p>`,
+  });
+}
+
+async function claimEmailSendPermit(email) {
   const rateLimit = await pool.query(
     `insert into email_send_limits (email)
      values ($1)
@@ -319,29 +312,40 @@ async function issueEmailVerification(userId, email) {
      returning email`,
     [email],
   );
-  if (!rateLimit.rowCount) throw fail('Please wait before requesting another confirmation email.', 429);
-  const token = randomBytes(32).toString('base64url');
-  await pool.query(
-    `insert into email_verification_tokens (token_hash, user_id, expires_at)
-     values ($1, $2, now() + interval '24 hours')
-     on conflict (token_hash) do nothing`,
-    [hashToken(token), userId],
-  );
-  const url = new URL('/auth/confirm', config.publicOrigin);
-  url.searchParams.set('token', token);
-  await mailer.sendMail({
-    from: config.smtpFrom,
-    to: email,
-    subject: 'Confirm your Sawaari account',
-    text: `Open this link to confirm your Sawaari account, then press Confirm account:\n\n${url.href}\n\nThis link expires in 24 hours.`,
-    html: `<h2>Confirm your Sawaari account</h2><p>Open the link below, then press <strong>Confirm account</strong> to verify your email.</p><p><a href="${url.href}">Open Sawaari</a></p><p>This link expires in 24 hours.</p>`,
-  });
+  if (!rateLimit.rowCount) throw fail('Please wait before requesting another email.', 429);
 }
 
 function validEmail(value) {
   return typeof value === 'string'
     && value.length <= 254
     && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+async function issueAccountDeletionEmail(email) {
+  await claimEmailSendPermit(email);
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = hashToken(token);
+  await pool.query('delete from account_deletion_tokens where email=$1', [email]);
+  await pool.query(
+    `insert into account_deletion_tokens (token_hash, email, expires_at)
+     values ($1, $2, now() + interval '24 hours')`,
+    [tokenHash, email],
+  );
+  const url = new URL('/delete-account', config.publicOrigin);
+  url.searchParams.set('token', token);
+  try {
+    await mailer.sendMail({
+      from: config.smtpFrom,
+      to: email,
+      subject: 'Confirm your Sawaari account deletion',
+      text: `If you requested deletion of a Sawaari account, open this link to review and confirm the request:\n\n${url.href}\n\nThe link expires in 24 hours. If you did not request this, do not open the link and your account will remain active.`,
+      html: `<h2>Confirm your Sawaari account deletion</h2><p>If you requested account deletion, open the link below to review and confirm it. Your account will not be deleted until you confirm on the website.</p><p><a href="${url.href}">Review deletion request</a></p><p>The link expires in 24 hours. If you did not request this, do not open the link and your account will remain active.</p>`,
+    });
+  } catch (error) {
+    await pool.query('delete from account_deletion_tokens where token_hash=$1', [tokenHash]);
+    console.error('Account deletion confirmation email could not be sent:', error);
+    throw fail('The confirmation email could not be sent. Please try again later.', 502);
+  }
 }
 
 function validCoordinates(latitude, longitude) {
@@ -371,6 +375,101 @@ function distanceSql(latExpression, lonExpression) {
 function isUuid(value) {
   return typeof value === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isPrivateDocumentName(value, userId) {
+  const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+  return typeof value === 'string'
+    && basename(value) === value
+    && value.startsWith(`${userId}-`)
+    && new RegExp(`^${uuid}-${uuid}\\.(pdf|jpg|png)$`, 'i').test(value);
+}
+
+async function queueUserDocumentsForDeletion(client, userId) {
+  const result = await client.query(
+    'select documents, driver_photo_path from driver_applications where user_id=$1',
+    [userId],
+  );
+  const paths = new Set();
+  for (const application of result.rows) {
+    if (!Array.isArray(application.documents)) {
+      throw new Error('Stored driver documents are invalid; refusing to delete the account until reviewed.');
+    }
+    for (const document of application.documents) {
+      if (typeof document !== 'object' || document === null
+        || !isPrivateDocumentName(document.path, userId)) {
+        throw new Error('A stored driver document path is invalid; refusing to delete the account until reviewed.');
+      }
+      paths.add(document.path);
+    }
+    if (application.driver_photo_path !== null) {
+      if (!isPrivateDocumentName(application.driver_photo_path, userId)) {
+        throw new Error('A stored driver photo path is invalid; refusing to delete the account until reviewed.');
+      }
+      paths.add(application.driver_photo_path);
+    }
+  }
+  for (const path of paths) {
+    await client.query(
+      'insert into private_file_deletion_queue (path) values ($1) on conflict (path) do nothing',
+      [path],
+    );
+  }
+  return [...paths];
+}
+
+async function deleteUserAccountInTransaction(client, userId) {
+  const result = await client.query(
+    'select id, email from app_users where id=$1 for update',
+    [userId],
+  );
+  if (!result.rowCount) return { deleted: false, documentPaths: [] };
+  const user = result.rows[0];
+  const documentPaths = await queueUserDocumentsForDeletion(client, user.id);
+  await client.query(
+    `update ride_requests set
+       status=case when driver_id=$1 and status in ('searching', 'accepted') then 'cancelled' else status end,
+       driver_id=case when driver_id=$1 then null else driver_id end,
+       driver_offer_id=case when driver_offer_id=$1 then null else driver_offer_id end,
+       driver_offer_fare=case when driver_offer_id=$1 then null else driver_offer_fare end,
+       driver_offer_status=case when driver_offer_id=$1 then null else driver_offer_status end,
+       last_driver_latitude=case when driver_id=$1 then null else last_driver_latitude end,
+       last_driver_longitude=case when driver_id=$1 then null else last_driver_longitude end,
+       last_driver_location_at=case when driver_id=$1 then null else last_driver_location_at end,
+       updated_at=now()
+     where driver_id=$1 or driver_offer_id=$1`,
+    [user.id],
+  );
+  await client.query('delete from account_deletion_tokens where email=$1', [user.email]);
+  await client.query('delete from email_send_limits where email=$1', [user.email]);
+  await client.query('delete from app_users where id=$1', [user.id]);
+  return { deleted: true, documentPaths };
+}
+
+async function processPrivateFileDeletionQueue() {
+  const queued = await pool.query(
+    'select path from private_file_deletion_queue order by created_at limit 50',
+  );
+  for (const { path } of queued.rows) {
+    if (!isPrivateDocumentName(path, path.slice(0, 36))) {
+      console.error('Private file deletion queue contains an invalid path.');
+      continue;
+    }
+    try {
+      await rm(join(config.privateDocumentsDir, path), { force: true });
+      await pool.query('delete from private_file_deletion_queue where path=$1', [path]);
+    } catch (error) {
+      console.error('Private driver document deletion will be retried:', error);
+    }
+  }
+}
+
+async function cleanPrivateFilesAfterAccountDeletion() {
+  try {
+    await processPrivateFileDeletionQueue();
+  } catch (error) {
+    console.error('Account deletion succeeded, but private-file cleanup could not run; queued files will be retried:', error);
+  }
 }
 
 async function parseDriverUpload(request, userId) {
@@ -719,175 +818,6 @@ async function route(request, response, url) {
     return;
   }
 
-  if (method === 'POST' && pathname.startsWith('/api/maps/')) {
-    const user = await requireUser(request);
-    await ensureAccountCanUseServices(user.id);
-    if (!config.googleMapsServerApiKey) {
-      throw fail('Google Maps server integration is not configured.', 503);
-    }
-
-    if (pathname === '/api/maps/routes') {
-      enforceMapsRequestLimit(user.id, 'routes', 30);
-      const body = await readJson(request);
-      const modes = { DRIVING: 'DRIVE', WALKING: 'WALK', BICYCLING: 'BICYCLE' };
-      if (!validMapsPoint(body.origin) || !validMapsPoint(body.destination)
-        || !Object.hasOwn(modes, body.travelMode)) {
-        throw fail('Provide valid pickup, destination, and travel mode values.');
-      }
-      const result = await requestGoogleMaps(
-        'https://routes.googleapis.com/directions/v2:computeRoutes',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Goog-Api-Key': config.googleMapsServerApiKey,
-            'X-Goog-FieldMask':
-              'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
-          },
-          body: JSON.stringify({
-            origin: { location: { latLng: {
-              latitude: body.origin.latitude,
-              longitude: body.origin.longitude,
-            } } },
-            destination: { location: { latLng: {
-              latitude: body.destination.latitude,
-              longitude: body.destination.longitude,
-            } } },
-            travelMode: modes[body.travelMode],
-            computeAlternativeRoutes: true,
-            regionCode: 'PK',
-            languageCode: 'en',
-            units: 'METRIC',
-            ...(body.travelMode === 'DRIVING' ? { routingPreference: 'TRAFFIC_AWARE' } : {}),
-          }),
-        },
-      );
-      if (!Array.isArray(result.routes)) {
-        throw fail('Google Maps did not return a route for these locations.', 404);
-      }
-      const routes = result.routes.slice(0, 3).flatMap((route) => {
-        const distanceMeters = route?.distanceMeters;
-        const durationMillis = typeof route?.duration === 'string'
-          ? Number.parseFloat(route.duration.replace(/s$/, '')) * 1000
-          : NaN;
-        const encodedPolyline = route?.polyline?.encodedPolyline;
-        if (!Number.isFinite(distanceMeters) || distanceMeters <= 0
-          || !Number.isFinite(durationMillis) || durationMillis <= 0
-          || typeof encodedPolyline !== 'string' || encodedPolyline.length === 0) return [];
-        return [{ distanceMeters, durationMillis, encodedPolyline }];
-      });
-      if (routes.length === 0) {
-        throw fail('Google Maps did not return a usable route.', 404);
-      }
-      sendJson(response, 200, { routes });
-      return;
-    }
-
-    if (pathname === '/api/maps/places/autocomplete') {
-      enforceMapsRequestLimit(user.id, 'autocomplete', 90);
-      const body = await readJson(request);
-      const input = typeof body.input === 'string' ? body.input.trim() : '';
-      if (input.length < 3 || input.length > 200
-        || typeof body.sessionToken !== 'string'
-        || !/^[A-Za-z0-9._-]{8,128}$/.test(body.sessionToken)
-        || !['Pakistan', 'Worldwide'].includes(body.scope)) {
-        throw fail('Enter a search of 3 to 200 characters and a valid map search scope.');
-      }
-      const result = await requestGoogleMaps(
-        'https://places.googleapis.com/v1/places:autocomplete',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Goog-Api-Key': config.googleMapsServerApiKey,
-            'X-Goog-FieldMask':
-              'suggestions.placePrediction.placeId,suggestions.placePrediction.text.text,suggestions.placePrediction.structuredFormat.mainText.text,suggestions.placePrediction.structuredFormat.secondaryText.text',
-          },
-          body: JSON.stringify({
-            input,
-            sessionToken: body.sessionToken,
-            languageCode: 'en',
-            regionCode: 'PK',
-            ...(body.scope === 'Pakistan' ? { includedRegionCodes: ['PK'] } : {}),
-          }),
-        },
-      );
-      const suggestions = Array.isArray(result.suggestions)
-        ? result.suggestions.flatMap((item) => {
-          const prediction = item?.placePrediction;
-          if (typeof prediction?.placeId !== 'string'
-            || typeof prediction?.text?.text !== 'string') return [];
-          return [{
-            id: prediction.placeId,
-            label: prediction.structuredFormat?.mainText?.text ?? prediction.text.text,
-            detail: prediction.structuredFormat?.secondaryText?.text ?? '',
-          }];
-        })
-        : [];
-      sendJson(response, 200, { suggestions });
-      return;
-    }
-
-    if (pathname === '/api/maps/places/details') {
-      enforceMapsRequestLimit(user.id, 'place-details', 30);
-      const body = await readJson(request);
-      if (typeof body.placeId !== 'string'
-        || !/^[A-Za-z0-9_-]{1,255}$/.test(body.placeId)
-        || typeof body.sessionToken !== 'string'
-        || !/^[A-Za-z0-9._-]{8,128}$/.test(body.sessionToken)) {
-        throw fail('Provide a valid Google Place ID and search session token.');
-      }
-      const url = new URL(
-        `https://places.googleapis.com/v1/places/${encodeURIComponent(body.placeId)}`,
-      );
-      url.searchParams.set('sessionToken', body.sessionToken);
-      url.searchParams.set('languageCode', 'en');
-      url.searchParams.set('regionCode', 'PK');
-      const place = await requestGoogleMaps(url, {
-        headers: {
-          'X-Goog-Api-Key': config.googleMapsServerApiKey,
-          'X-Goog-FieldMask': 'id,displayName,formattedAddress,location',
-        },
-      });
-      if (!validMapsPoint({
-        latitude: place.location?.latitude,
-        longitude: place.location?.longitude,
-      })) {
-        throw fail('Google Maps did not return coordinates for that place.', 404);
-      }
-      sendJson(response, 200, {
-        label: place.formattedAddress || place.displayName?.text || '',
-        point: {
-          latitude: place.location.latitude,
-          longitude: place.location.longitude,
-        },
-      });
-      return;
-    }
-
-    if (pathname === '/api/maps/geocode/reverse') {
-      enforceMapsRequestLimit(user.id, 'reverse-geocode', 30);
-      const body = await readJson(request);
-      if (!validMapsPoint(body.point)) {
-        throw fail('Provide valid latitude and longitude coordinates.');
-      }
-      const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-      url.searchParams.set('latlng', `${body.point.latitude},${body.point.longitude}`);
-      url.searchParams.set('region', 'pk');
-      url.searchParams.set('key', config.googleMapsServerApiKey);
-      const result = await requestGoogleMaps(url);
-      const address = result.status === 'OK' && Array.isArray(result.results)
-        ? result.results[0]?.formatted_address
-        : undefined;
-      if (typeof address !== 'string' || !address) {
-        throw fail('Google Maps could not find a street address for this pin.', 404);
-      }
-      sendJson(response, 200, { address });
-      return;
-    }
-    throw fail('Map service route not found.', 404);
-  }
-
   if (method === 'GET' && pathname === '/api/driver/photo') {
     const [payload, signature, extra] = (url.searchParams.get('token') ?? '').split('.');
     if (!payload || !signature || extra) throw fail('This driver photo link is invalid or expired.', 403);
@@ -992,6 +922,18 @@ async function route(request, response, url) {
     return;
   }
 
+  if (method === 'POST' && pathname === '/api/auth/delete-request') {
+    if (!loginAllowed(request)) throw fail('Too many requests. Try again in 15 minutes.', 429);
+    const body = await readJson(request);
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    if (!validEmail(email)) throw fail('Enter a valid email address.');
+    await issueAccountDeletionEmail(email);
+    sendJson(response, 200, {
+      message: 'If this address is associated with a Sawaari account, a confirmation email has been sent.',
+    });
+    return;
+  }
+
   if (method === 'POST' && pathname === '/api/auth/confirm') {
     const body = await readJson(request);
     const token = typeof body.token === 'string' ? body.token : '';
@@ -1018,6 +960,44 @@ async function route(request, response, url) {
       client.release();
     }
     sendJson(response, 200, { confirmed: true });
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/auth/delete-request/confirm') {
+    const body = await readJson(request);
+    const token = typeof body.token === 'string' ? body.token : '';
+    if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) {
+      throw fail('This deletion link is invalid or expired.');
+    }
+    const client = await pool.connect();
+    let deletion = { deleted: false, documentPaths: [] };
+    try {
+      await client.query('begin');
+      const requestResult = await client.query(
+        `select email from account_deletion_tokens
+         where token_hash=$1 and expires_at > now() for update`,
+        [hashToken(token)],
+      );
+      if (!requestResult.rowCount) throw fail('This deletion link is invalid or expired.');
+      const account = await client.query(
+        'select id from app_users where email=$1 for update',
+        [requestResult.rows[0].email],
+      );
+      if (account.rowCount) {
+        deletion = await deleteUserAccountInTransaction(client, account.rows[0].id);
+      } else {
+        await client.query('delete from account_deletion_tokens where email=$1', [requestResult.rows[0].email]);
+        await client.query('delete from email_send_limits where email=$1', [requestResult.rows[0].email]);
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+    await cleanPrivateFilesAfterAccountDeletion();
+    sendJson(response, 200, { deleted: deletion.deleted });
     return;
   }
 
@@ -1056,6 +1036,35 @@ async function route(request, response, url) {
     const token = requestToken(request);
     if (token) await pool.query('delete from user_sessions where token_hash = $1', [hashToken(token)]);
     sendJson(response, 200, { signedOut: true }, { 'Set-Cookie': clearCookie('sawaari_session') });
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/auth/delete-account') {
+    const user = await requireUser(request);
+    if (!loginAllowed(request)) throw fail('Too many attempts. Try again later.', 429);
+    const body = await readJson(request);
+    const password = typeof body.password === 'string' ? body.password : '';
+    const account = await pool.query(
+      'select password_hash from app_users where id=$1',
+      [user.id],
+    );
+    if (!account.rowCount || !(await verifyPassword(password, account.rows[0].password_hash))) {
+      throw fail('Enter your current password to confirm account deletion.', 403);
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const deletion = await deleteUserAccountInTransaction(client, user.id);
+      if (!deletion.deleted) throw fail('User account not found.', 404);
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+    await cleanPrivateFilesAfterAccountDeletion();
+    sendJson(response, 200, { deleted: true }, { 'Set-Cookie': clearCookie('sawaari_session') });
     return;
   }
 
@@ -2098,6 +2107,61 @@ async function route(request, response, url) {
     return;
   }
 
+  const rideMessagesMatch = pathname.match(
+    /^\/api\/rides\/([0-9a-f-]{36})\/messages$/i,
+  );
+  if (rideMessagesMatch && method === 'GET') {
+    const user = await requireUser(request);
+    const ride = await pool.query(
+      `select 1 from ride_requests
+       where id=$1 and status='accepted' and (rider_id=$2 or driver_id=$2)`,
+      [rideMessagesMatch[1], user.id],
+    );
+    if (!ride.rowCount) throw fail('Ride chat not found or no longer available.', 404);
+    const result = await pool.query(
+      `select id, sender_id=$2 as is_mine, body, created_at
+       from ride_messages where request_id=$1
+       order by created_at desc, id desc limit 200`,
+      [rideMessagesMatch[1], user.id],
+    );
+    sendJson(response, 200, { messages: result.rows.reverse() });
+    return;
+  }
+
+  if (rideMessagesMatch && method === 'POST') {
+    const user = await requireUser(request);
+    const body = await readJson(request);
+    const message = typeof body.message === 'string' ? body.message.trim() : '';
+    if (message.length < 1 || message.length > 2000) {
+      throw fail('A ride message must contain 1 to 2000 characters.');
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const ride = await client.query(
+        `select id from ride_requests
+         where id=$1 and status='accepted' and (rider_id=$2 or driver_id=$2)
+         for update`,
+        [rideMessagesMatch[1], user.id],
+      );
+      if (!ride.rowCount) throw fail('Ride chat not found or no longer available.', 404);
+      await client.query(
+        `insert into ride_messages (request_id, sender_id, body)
+         values ($1, $2, $3)`,
+        [rideMessagesMatch[1], user.id, message],
+      );
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+    sendJson(response, 201, { sent: true });
+    return;
+  }
+
   if (method === 'POST' && pathname === '/api/driver/complete') {
     const user = await requireUser(request);
     const body = await readJson(request);
@@ -2424,10 +2488,17 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Sawaari VPS API listening on 127.0.0.1:${PORT}`);
 });
 
+void processPrivateFileDeletionQueue().catch((error) => {
+  console.error('Private file deletion queue startup cleanup failed:', error);
+});
+
 const cleanupTimer = setInterval(() => {
   void pool.query('delete from user_sessions where expires_at <= now()')
     .then(() => pool.query('delete from email_verification_tokens where expires_at <= now()'))
-    .catch((error) => console.error('Expired session cleanup failed:', error));
+    .then(() => pool.query('delete from account_deletion_tokens where expires_at <= now()'))
+    .then(() => pool.query(`delete from email_send_limits where updated_at <= now() - interval '30 days'`))
+    .then(() => processPrivateFileDeletionQueue())
+    .catch((error) => console.error('Account cleanup task failed:', error));
 }, 60 * 60 * 1000);
 cleanupTimer.unref();
 

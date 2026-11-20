@@ -1,12 +1,50 @@
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { StyleSheet, View } from 'react-native';
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map as MapLibreMap,
+  UserLocation,
+  ViewAnnotation,
+} from '@maplibre/maplibre-react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { StyleSheet, View } from 'react-native';
+import type { CameraRef, ViewStateChangeEvent } from '@maplibre/maplibre-react-native';
 import type { MapPoint, RideMapProps } from './ride-map.types';
 
 const GREEN = '#0B786F';
 const WHITE = '#FFFFFF';
 const ORANGE = '#E79A54';
+const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+
+type MapRegion = MapPoint & { latitudeDelta: number; longitudeDelta: number };
+
+function zoomForRegion(region: MapRegion) {
+  const longitudeZoom = Math.log2(360 / Math.max(region.longitudeDelta, 0.00001));
+  const latitudeZoom = Math.log2(170 / Math.max(region.latitudeDelta, 0.00001));
+  return Math.max(2, Math.min(20, Math.min(longitudeZoom, latitudeZoom)));
+}
+
+function regionForViewState(view: ViewStateChangeEvent): MapRegion {
+  const [west, south, east, north] = view.bounds;
+  return {
+    latitude: view.center[1],
+    longitude: view.center[0],
+    latitudeDelta: Math.max(0.001, Math.abs(north - south)),
+    longitudeDelta: Math.max(0.001, Math.abs(east - west)),
+  };
+}
+
+function sameRegion(left: MapRegion, right: MapRegion) {
+  return Math.abs(left.latitude - right.latitude) < 0.00001
+    && Math.abs(left.longitude - right.longitude) < 0.00001
+    && Math.abs(left.latitudeDelta - right.latitudeDelta) < 0.00001
+    && Math.abs(left.longitudeDelta - right.longitudeDelta) < 0.00001;
+}
+
+function toLngLat(point: MapPoint): [number, number] {
+  return [point.longitude, point.latitude];
+}
 
 export default function RideMap({
   region,
@@ -25,106 +63,188 @@ export default function RideMap({
   routeOptions = [],
   selectedRouteIndex = 0,
   onSelectRoute,
-  mapType = 'standard',
   previewPoint,
   previewPointKind = 'pickup',
 }: RideMapProps) {
-  const map = useRef<MapView>(null);
+  const camera = useRef<CameraRef>(null);
+  const lastRegion = useRef<MapRegion>(region);
+  const routeData = useMemo<GeoJSON.FeatureCollection<
+    GeoJSON.LineString,
+    { routeIndex: number; selected: boolean }
+  >>(
+    () => ({
+      type: 'FeatureCollection',
+      features: routeOptions.flatMap((route, index) => route.path.length < 2 ? [] : [{
+        type: 'Feature' as const,
+        properties: { routeIndex: index, selected: index === selectedRouteIndex },
+        geometry: {
+          type: 'LineString' as const,
+          coordinates: route.path.map((point) => [point.longitude, point.latitude] as [number, number]),
+        },
+      }]),
+    }),
+    [routeOptions, selectedRouteIndex],
+  );
 
+  const { latitude, latitudeDelta, longitude, longitudeDelta } = region;
   useEffect(() => {
-    if (!acceptedDriverLocation || !followAcceptedDriver) return;
-    map.current?.animateToRegion({
-      ...acceptedDriverLocation,
+    const nextRegion = { latitude, latitudeDelta, longitude, longitudeDelta };
+    if (sameRegion(lastRegion.current, nextRegion)) return;
+    lastRegion.current = nextRegion;
+    camera.current?.flyTo({
+      center: toLngLat(nextRegion),
+      zoom: zoomForRegion(nextRegion),
+      duration: 500,
+    });
+  }, [latitude, latitudeDelta, longitude, longitudeDelta]);
+
+  const acceptedLatitude = acceptedDriverLocation?.latitude;
+  const acceptedLongitude = acceptedDriverLocation?.longitude;
+  useEffect(() => {
+    if (acceptedLatitude === undefined || acceptedLongitude === undefined || !followAcceptedDriver) return;
+    const nextRegion = {
+      latitude: acceptedLatitude,
+      longitude: acceptedLongitude,
       latitudeDelta: 0.02,
       longitudeDelta: 0.02,
-    }, 500);
-  }, [acceptedDriverLocation, followAcceptedDriver]);
+    };
+    lastRegion.current = nextRegion;
+    camera.current?.easeTo({
+      center: toLngLat(nextRegion),
+      zoom: zoomForRegion(nextRegion),
+      duration: 500,
+    });
+  }, [
+    acceptedLatitude,
+    acceptedLongitude,
+    followAcceptedDriver,
+  ]);
 
   return (
-    <MapView
-      ref={map}
+    <MapLibreMap
       style={StyleSheet.absoluteFill}
-      provider={PROVIDER_GOOGLE}
-      mapType={mapType}
-      region={region}
-      onRegionChangeComplete={onRegionChange}
-      onPress={onMapPress ? (event: { nativeEvent: { coordinate: MapPoint } }) => {
-        onMapPress(event.nativeEvent.coordinate);
+      mapStyle={MAP_STYLE}
+      attribution
+      compass
+      scaleBar={false}
+      onRegionDidChange={(event) => {
+        const nextRegion = regionForViewState(event.nativeEvent);
+        lastRegion.current = nextRegion;
+        onRegionChange(nextRegion);
+      }}
+      onPress={onMapPress ? (event) => {
+        const [longitude, latitude] = event.nativeEvent.lngLat;
+        onMapPress({ latitude, longitude });
       } : undefined}
-      showsUserLocation={locationGranted}
-      showsMyLocationButton={false}
-      toolbarEnabled={false}
       accessibilityLabel="Map showing the selected pickup and destination."
     >
-      {routeOptions.map((route, index) => (
-        <Polyline
-          key={`route-${index}`}
-          coordinates={route.path}
-          strokeColor={index === selectedRouteIndex ? GREEN : '#64828B'}
-          strokeWidth={index === selectedRouteIndex ? 6 : 4}
-          zIndex={index === selectedRouteIndex ? 2 : 1}
-          tappable={Boolean(onSelectRoute)}
-          onPress={() => onSelectRoute?.(index)}
+      <Camera
+        ref={camera}
+        initialViewState={{
+          center: toLngLat(region),
+          zoom: zoomForRegion(region),
+        }}
+      />
+      {locationGranted ? <UserLocation animated minDisplacement={5} /> : null}
+      <GeoJSONSource
+        id="ride-routes"
+        data={routeData}
+        onPress={(event) => {
+          event.stopPropagation();
+          const route = event.nativeEvent.features.find((feature) => (
+            typeof feature.properties?.routeIndex === 'number'
+          ));
+          const index = route?.properties?.routeIndex;
+          if (typeof index === 'number') onSelectRoute?.(index);
+        }}
+      >
+        <Layer
+          id="alternate-routes"
+          type="line"
+          filter={['==', ['get', 'selected'], false]}
+          layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+          paint={{ 'line-color': '#64828B', 'line-width': 4, 'line-opacity': 0.8 }}
         />
-      ))}
-      {pickup && (
-        <Marker
-          coordinate={pickup}
-          title="Pickup"
+        <Layer
+          id="selected-route"
+          type="line"
+          filter={['==', ['get', 'selected'], true]}
+          layout={{ 'line-cap': 'round', 'line-join': 'round' }}
+          paint={{ 'line-color': GREEN, 'line-width': 6, 'line-opacity': 0.95 }}
+        />
+      </GeoJSONSource>
+      {pickup ? (
+        <ViewAnnotation
+          id="pickup-marker"
+          lngLat={toLngLat(pickup)}
+          anchor="bottom"
           draggable={Boolean(onMarkerDragEnd)}
           onDragEnd={onMarkerDragEnd ? (event) => {
-            onMarkerDragEnd('pickup', event.nativeEvent.coordinate);
+            const [longitude, latitude] = event.nativeEvent.lngLat;
+            onMarkerDragEnd('pickup', { latitude, longitude });
           } : undefined}
         >
           <View style={styles.pickupMarker}>
             <View style={styles.pickupMarkerDot} />
           </View>
-        </Marker>
-      )}
-      {destination && (
-        <Marker
-          coordinate={destination}
-          title="Destination"
+        </ViewAnnotation>
+      ) : null}
+      {destination ? (
+        <ViewAnnotation
+          id="destination-marker"
+          lngLat={toLngLat(destination)}
+          anchor="bottom"
           draggable={Boolean(onMarkerDragEnd)}
           onDragEnd={onMarkerDragEnd ? (event) => {
-            onMarkerDragEnd('destination', event.nativeEvent.coordinate);
+            const [longitude, latitude] = event.nativeEvent.lngLat;
+            onMarkerDragEnd('destination', { latitude, longitude });
           } : undefined}
         >
           <View style={styles.destinationMarker}>
             <Ionicons name="location" size={18} color={WHITE} />
           </View>
-        </Marker>
-      )}
-      {previewPoint && (
-        <Marker
-          coordinate={previewPoint}
-          title={`Selected ${previewPointKind}`}
-          pinColor={previewPointKind === 'destination' ? ORANGE : GREEN}
-        />
-      )}
+        </ViewAnnotation>
+      ) : null}
+      {previewPoint ? (
+        <ViewAnnotation
+          id="preview-marker"
+          lngLat={toLngLat(previewPoint)}
+          anchor="bottom"
+        >
+          <View style={[
+            styles.destinationMarker,
+            previewPointKind === 'pickup' && styles.previewPickupMarker,
+          ]}>
+            <Ionicons name="location" size={18} color={WHITE} />
+          </View>
+        </ViewAnnotation>
+      ) : null}
       {nearbyDrivers.map((driver) => (
-        <Marker
+        <ViewAnnotation
           key={driver.driver_id}
-          coordinate={{ latitude: driver.latitude, longitude: driver.longitude }}
-          title={`Nearby ${driver.vehicle}`}
+          id={`nearby-${driver.driver_id}`}
+          lngLat={toLngLat(driver)}
+          anchor="center"
         >
           <View style={styles.nearbyMarker}>
             <Ionicons name={vehicleIcon(driver.vehicle)} size={15} color={WHITE} />
           </View>
-        </Marker>
+        </ViewAnnotation>
       ))}
       {acceptedDriverLocation ? (
-        <Marker
-          coordinate={acceptedDriverLocation}
+        <ViewAnnotation
+          id="accepted-driver-marker"
+          lngLat={toLngLat(acceptedDriverLocation)}
+          anchor="center"
           title={acceptedDriverTitle}
-          description={acceptedDriverDescription}
+          snippet={acceptedDriverDescription}
         >
           <View style={styles.liveDriverMarker}>
             <Ionicons name={vehicleIcon(acceptedDriverVehicle ?? '')} size={19} color={WHITE} />
           </View>
-        </Marker>
+        </ViewAnnotation>
       ) : null}
-    </MapView>
+    </MapLibreMap>
   );
 }
 
@@ -158,6 +278,7 @@ const styles = StyleSheet.create({
     backgroundColor: ORANGE,
     elevation: 4,
   },
+  previewPickupMarker: { backgroundColor: GREEN },
   nearbyMarker: {
     width: 25,
     height: 25,
@@ -177,7 +298,7 @@ const styles = StyleSheet.create({
     borderColor: WHITE,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0B786F',
+    backgroundColor: GREEN,
     elevation: 6,
   },
 });

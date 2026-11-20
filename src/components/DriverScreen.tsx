@@ -10,6 +10,7 @@ import {
 import { Pressable, Text, TextInput } from './AppText';
 import AccountPanel from './AccountPanel';
 import DriverVerification from './DriverVerification';
+import RideChatModal from './RideChatModal';
 import VehicleArt from './VehicleArt';
 import SupportChatModal from './SupportChatModal';
 import type { DriverApplicationStatus, DriverApplicationSummary } from './DriverVerification';
@@ -190,6 +191,7 @@ export default function DriverScreen() {
   const [dashboardError, setDashboardError] = useState('');
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [supportChatVisible, setSupportChatVisible] = useState(false);
+  const [rideChatVisible, setRideChatVisible] = useState(false);
   const [lastPoint, setLastPoint] = useState<MapPoint | null>(null);
   const watch = useRef<Location.LocationSubscription | null>(null);
   const activeRideWatch = useRef<Location.LocationSubscription | null>(null);
@@ -861,6 +863,14 @@ export default function DriverScreen() {
           <Text style={styles.locationSharingNote}>
             Live location is shared with this rider while the app is open and location is enabled.
           </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setRideChatVisible(true)}
+            style={styles.rideChatButton}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={17} color={COLORS.white} />
+            <Text style={styles.rideChatButtonText}>Chat with rider</Text>
+          </Pressable>
           <Pressable disabled={busy} onPress={() => void completeRide()} style={styles.acceptButton}>
             {busy ? <ActivityIndicator color={COLORS.green} /> : (
               <Text style={styles.acceptText}>Confirm cash received & complete ride</Text>
@@ -1100,6 +1110,12 @@ export default function DriverScreen() {
       whatsappNumber={WHATSAPP_SUPPORT_NUMBER}
       onSignIn={() => setSupportChatVisible(false)}
     />
+    <RideChatModal
+      visible={rideChatVisible}
+      onClose={() => setRideChatVisible(false)}
+      requestId={activeRide?.request_id ?? null}
+      participantName={activeRide?.rider_name || 'Rider'}
+    />
     </View>
   );
 }
@@ -1302,6 +1318,8 @@ const styles = StyleSheet.create({
   requestCard: { padding: 17, borderRadius: 21, borderWidth: 1, borderColor: '#E6EFEC', backgroundColor: COLORS.white, gap: 9, elevation: 4, shadowColor: '#173A4B', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   paymentHint: { color: COLORS.orange, fontSize: 10, lineHeight: 15, fontWeight: '700' },
   locationSharingNote: { color: COLORS.green, fontSize: 10, lineHeight: 15, fontWeight: '600' },
+  rideChatButton: { minHeight: 42, borderRadius: 11, backgroundColor: COLORS.green, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  rideChatButtonText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
   requestTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   requestMetaLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
   requestFare: { color: COLORS.green, fontSize: 18, fontWeight: '800' },

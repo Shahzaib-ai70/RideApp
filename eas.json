@@ -5,6 +5,7 @@
   },
   "build": {
     "preview": {
+      "environment": "preview",
       "distribution": "internal",
       "android": {
         "buildType": "apk"
@@ -14,7 +15,12 @@
       }
     },
     "production": {
+      "credentialsSource": "local",
+      "environment": "production",
       "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://sawaari.online/api"
       }

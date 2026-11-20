@@ -1,6 +1,8 @@
 import type { MapPoint, RideRouteOption, RouteTravelMode } from './ride-map.types';
+import { Platform } from 'react-native';
 
 const MAPBOX_ACCESS_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
+const MAPBOX_MOBILE_ACCESS_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_MOBILE_ACCESS_TOKEN ?? '';
 const SEARCH_BOX_ENDPOINT = 'https://api.mapbox.com/search/searchbox/v1';
 const GEOCODING_ENDPOINT = 'https://api.mapbox.com/search/geocode/v6';
 const DIRECTIONS_ENDPOINT = 'https://api.mapbox.com/directions/v5';
@@ -17,10 +19,14 @@ export type MapboxPlaceDetails = {
 };
 
 function requireAccessToken() {
-  if (!MAPBOX_ACCESS_TOKEN) {
-    throw new Error('Mapbox is not configured. Add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN and restart the app.');
+  const token = Platform.OS === 'web' ? MAPBOX_ACCESS_TOKEN : MAPBOX_MOBILE_ACCESS_TOKEN;
+  if (!token) {
+    const variable = Platform.OS === 'web'
+      ? 'EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN'
+      : 'EXPO_PUBLIC_MAPBOX_MOBILE_ACCESS_TOKEN';
+    throw new Error(`Mapbox is not configured. Add ${variable} and restart the app.`);
   }
-  return MAPBOX_ACCESS_TOKEN;
+  return token;
 }
 
 async function requestJson(url: URL, signal?: AbortSignal): Promise<Record<string, unknown>> {

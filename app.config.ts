@@ -1,9 +1,6 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
 
 export default ({ config }: ConfigContext): ExpoConfig => {
-  const androidGoogleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY;
-  const iosGoogleMapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_IOS_API_KEY;
-
   return {
     ...config,
     name: 'Sawaari',
@@ -24,19 +21,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       ...config.android,
-      package: 'com.sawaari.pakistan',
+      package: 'com.sawaari.online',
       versionCode: config.android?.versionCode ?? 1,
     },
     plugins: [
       'expo-router',
       'expo-secure-store',
-      [
-        'react-native-maps',
-        {
-          ...(androidGoogleMapsApiKey ? { androidGoogleMapsApiKey } : {}),
-          ...(iosGoogleMapsApiKey ? { iosGoogleMapsApiKey } : {}),
-        },
-      ],
+      'expo-status-bar',
+      ['@maplibre/maplibre-react-native', { android: { locationEngine: 'default' } }],
       ...(config.plugins ?? []),
       [
         'expo-location',

@@ -1,10 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import type { LocationGeocodedAddress } from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
   Image,
@@ -33,7 +32,9 @@ import { useInAppNotice } from './InAppNoticeProvider';
 import AccountPanel from './AccountPanel';
 import { useAuth } from '../lib/AuthContext';
 import { apiRequest } from '../lib/api';
+import { RIDES_STORAGE_KEY } from '../lib/storageKeys';
 import VehicleArt from './VehicleArt';
+import RideChatModal from './RideChatModal';
 import SupportChatModal from './SupportChatModal';
 
 type Coordinate = MapPoint;
@@ -50,7 +51,6 @@ type PlaceSuggestion = {
   country: string;
   point: Coordinate | null;
   precisionNote?: string;
-  googlePlaceId?: string;
 };
 
 type Ride = {
@@ -95,8 +95,9 @@ type RideServerStatus = {
   driver_offer_fare: number | null;
 };
 
-const STORAGE_KEY = '@sawaari/rides';
-const MAPBOX_WEB_CONFIGURED = Boolean(process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN);
+const MAPBOX_CONFIGURED = Boolean(Platform.OS === 'web'
+  ? process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN
+  : process.env.EXPO_PUBLIC_MAPBOX_MOBILE_ACCESS_TOKEN);
 const WHATSAPP_SUPPORT_NUMBER = (process.env.EXPO_PUBLIC_WHATSAPP_SUPPORT_NUMBER ?? '')
   .replace(/\D/g, '');
 const DEFAULT_REGION: MapViewport = {
@@ -135,61 +136,12 @@ function coordinatesLabel(point: Coordinate | null) {
   return `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`;
 }
 
-function newPlaceSessionToken() {
-  return `sawaari-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
-}
-
-function decodeGooglePolyline(encoded: string): Coordinate[] {
-  const points: Coordinate[] = [];
-  let index = 0;
-  let latitude = 0;
-  let longitude = 0;
-  const readDelta = () => {
-    let result = 0;
-    let shift = 0;
-    let byte = 0;
-    do {
-      if (index >= encoded.length) throw new Error('Google Maps returned an incomplete route line.');
-      byte = encoded.charCodeAt(index) - 63;
-      index += 1;
-      if (byte < 0 || byte > 63 || shift > 30) {
-        throw new Error('Google Maps returned an invalid route line.');
-      }
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-    } while (byte >= 0x20);
-    return result & 1 ? ~(result >> 1) : result >> 1;
-  };
-  while (index < encoded.length) {
-    latitude += readDelta();
-    longitude += readDelta();
-    const point = { latitude: latitude / 1e5, longitude: longitude / 1e5 };
-    if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)
-      || Math.abs(point.latitude) > 90 || Math.abs(point.longitude) > 180) {
-      throw new Error('Google Maps returned invalid route coordinates.');
-    }
-    points.push(point);
-  }
-  if (points.length < 2) throw new Error('Google Maps returned an incomplete route.');
-  return points;
-}
-
 function formatRouteDuration(durationMillis: number) {
   const minutes = Math.max(1, Math.round(durationMillis / 60000));
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
   const remaining = minutes % 60;
   return remaining ? `${hours} hr ${remaining} min` : `${hours} hr`;
-}
-
-function isGoogleRouteResponse(value: unknown): value is {
-  routes: { distanceMeters: number; durationMillis: number; encodedPolyline: string }[];
-} {
-  return isRecord(value) && Array.isArray(value.routes)
-    && value.routes.every((route) => isRecord(route)
-      && typeof route.distanceMeters === 'number' && Number.isFinite(route.distanceMeters)
-      && typeof route.durationMillis === 'number' && Number.isFinite(route.durationMillis)
-      && typeof route.encodedPolyline === 'string');
 }
 
 function estimateStraightLineDistance(pickup: Coordinate, destination: Coordinate) {
@@ -276,28 +228,39 @@ function photonSuggestions(value: unknown, scope: SearchScope): PlaceSuggestion[
   });
 }
 
-async function searchTomTomWebLocations(
+async function searchTomTomLocations(
   query: string,
   scope: SearchScope,
   proximity: Coordinate,
   signal: AbortSignal,
 ): Promise<PlaceSuggestion[]> {
-  const endpoint = __DEV__
-    ? 'http://127.0.0.1:3211/api/maps/location-search'
-    : '/api/maps/location-search';
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: __DEV__ ? 'omit' : 'same-origin',
-    signal,
-    body: JSON.stringify({ query, scope, proximity }),
-  });
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message = isRecord(payload) && typeof payload.error === 'string'
-      ? payload.error
-      : `TomTom Search failed (${response.status}).`;
-    throw new Error(message);
+  const body = JSON.stringify({ query, scope, proximity });
+  let payload: unknown;
+  if (Platform.OS === 'web') {
+    const endpoint = __DEV__
+      ? 'http://127.0.0.1:3211/api/maps/location-search'
+      : '/api/maps/location-search';
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: __DEV__ ? 'omit' : 'same-origin',
+      signal,
+      body,
+    });
+    payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const message = isRecord(payload) && typeof payload.error === 'string'
+        ? payload.error
+        : `TomTom Search failed (${response.status}).`;
+      throw new Error(message);
+    }
+  } else {
+    payload = await apiRequest<unknown>('/maps/location-search', {
+      method: 'POST',
+      signal,
+      auth: false,
+      body,
+    });
   }
   if (!isRecord(payload) || !Array.isArray(payload.suggestions)) {
     throw new Error('TomTom Search returned an invalid response.');
@@ -345,12 +308,6 @@ function isRide(value: unknown): value is Ride {
     && (!('cloud' in value) || typeof value.cloud === 'boolean');
 }
 
-function formatAddress(address: LocationGeocodedAddress | undefined) {
-  const parts = [address?.name, address?.street, address?.district, address?.city, address?.region]
-    .filter((part): part is string => Boolean(part));
-  return [...new Set(parts)].slice(0, 3).join(', ');
-}
-
 function formatTime(dateString: string) {
   return new Date(dateString).toLocaleString(undefined, {
     month: 'short',
@@ -364,7 +321,6 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const router = useRouter();
   const { notify, confirm } = useInAppNotice();
   const { configured, session } = useAuth();
-  const hasSignedInUser = Boolean(session?.user);
   const { width } = useWindowDimensions();
   const wideLayout = Platform.OS === 'web' && width >= 980;
   const [region, setRegion] = useState(DEFAULT_REGION);
@@ -381,7 +337,6 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [searchScope, setSearchScope] = useState<SearchScope>('Pakistan');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceSuggestion[]>([]);
-  const nativePlaceSessionToken = useRef<string | null>(null);
   const [searchingPlaces, setSearchingPlaces] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [vehicle, setVehicle] = useState<Vehicle>('Car');
@@ -401,6 +356,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const [loadingLocation, setLoadingLocation] = useState(false);
   const [locationPromptVisible, setLocationPromptVisible] = useState(false);
   const [supportChatVisible, setSupportChatVisible] = useState(false);
+  const [rideChatVisible, setRideChatVisible] = useState(false);
+  const [rideChatRequestId, setRideChatRequestId] = useState<string | null>(null);
   const [locationCanAskAgain, setLocationCanAskAgain] = useState(true);
   const [loadingRides, setLoadingRides] = useState(true);
   const [storageError, setStorageError] = useState('');
@@ -421,6 +378,10 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   const showMessage = useCallback((title: string, message: string) => {
     notify({ title, message });
   }, [notify]);
+  const openRideChat = (rideId: string) => {
+    setRideChatRequestId(rideId);
+    setRideChatVisible(true);
+  };
   const directDistanceKm = pickup && destination
     && (Math.abs(pickup.latitude - destination.latitude) >= 0.0001
       || Math.abs(pickup.longitude - destination.longitude) >= 0.0001)
@@ -428,9 +389,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     : null;
   const fareDistanceKm = routeDistanceKm ?? directDistanceKm;
   const suggestedFare = fareDistanceKm === null ? null : estimateFare(fareDistanceKm, vehicle);
-  const routeStatusError = Platform.OS === 'web' && !MAPBOX_WEB_CONFIGURED
-    && pickup && destination
-    ? 'Mapbox is not configured for this website. Add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to .env to calculate real routes.'
+  const routeStatusError = !MAPBOX_CONFIGURED && pickup && destination
+    ? `Mapbox is not configured. Add ${Platform.OS === 'web' ? 'EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN' : 'EXPO_PUBLIC_MAPBOX_MOBILE_ACCESS_TOKEN'} to calculate real routes.`
     : routeError;
 
   useEffect(() => {
@@ -450,10 +410,10 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         setRouteLoading(false);
         return;
       }
-      if (!hasSignedInUser) {
+      if (!MAPBOX_CONFIGURED) {
         setRouteOptions([]);
         setRouteDistanceKm(null);
-        setRouteError('Sign in to calculate a Google Maps route.');
+        setRouteError('Mapbox is not configured. Add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to calculate a road route.');
         setRouteLoading(false);
         return;
       }
@@ -462,24 +422,8 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       setRouteDistanceKm(null);
       setRouteError('');
       setSelectedRouteIndex(0);
-      void apiRequest<unknown>('/maps/routes', {
-        method: 'POST',
-        signal: controller.signal,
-        body: JSON.stringify({ origin: pickup, destination, travelMode: routeTravelMode }),
-      })
-        .then((response) => {
-          if (!isGoogleRouteResponse(response)) {
-            throw new Error('Google Maps returned an invalid route response.');
-          }
-          const options = response.routes.flatMap((route) => {
-            if (route.distanceMeters <= 0 || route.durationMillis <= 0) return [];
-            return [{
-              distanceMeters: route.distanceMeters,
-              durationMillis: route.durationMillis,
-              path: decodeGooglePolyline(route.encodedPolyline),
-            }];
-          });
-          if (!options.length) throw new Error('Google Maps could not find a route.');
+      void getMapboxDirections(pickup, destination, routeTravelMode, controller.signal)
+        .then((options) => {
           setRouteOptions(options);
           const index = Math.min(selectedRouteIndexRef.current, options.length - 1);
           setSelectedRouteIndex(index);
@@ -491,7 +435,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
-          setRouteError(error instanceof Error ? error.message : 'Could not calculate the Google Maps route.');
+          setRouteError(error instanceof Error ? error.message : 'Could not calculate the road route.');
         })
         .finally(() => {
           if (!controller.signal.aborted) setRouteLoading(false);
@@ -501,7 +445,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [destination, hasSignedInUser, pickup, routeTravelMode, screen]);
+  }, [destination, pickup, routeTravelMode, screen]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || screen !== 'Ride') return undefined;
@@ -514,7 +458,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         setRouteLoading(false);
         return;
       }
-      if (!MAPBOX_WEB_CONFIGURED) {
+      if (!MAPBOX_CONFIGURED) {
         setRouteOptions([]);
         setRouteDistanceKm(null);
         setRouteError('Mapbox is not configured. Add EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN to .env to calculate a road route.');
@@ -555,7 +499,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
 
   useEffect(() => {
     let active = true;
-    AsyncStorage.getItem(STORAGE_KEY)
+    AsyncStorage.getItem(RIDES_STORAGE_KEY)
       .then((value) => {
         if (!active || !value) return;
         const savedRides: unknown = JSON.parse(value);
@@ -732,102 +676,41 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     const timeout = setTimeout(() => {
       setSearchingPlaces(true);
       setSearchError('');
-      if (Platform.OS === 'web') {
-        searchRequestTimeout = setTimeout(() => {
-          searchTimedOut = true;
-          controller.abort();
-        }, 15000);
-        const searchCenter = searchField === 'destination' ? pickup : destination;
-        const proximity = searchCenter ?? { latitude: region.latitude, longitude: region.longitude };
-        void searchTomTomWebLocations(query, searchScope, proximity, controller.signal)
-          .then(async (suggestions) => {
-            if (controller.signal.aborted) return;
-            if (suggestions.length > 0) return suggestions;
-            const params = new URLSearchParams({ q: query, limit: '10', lang: 'en' });
-            if (searchScope === 'Pakistan') params.set('bbox', PAKISTAN_SEARCH_BOUNDS);
-            params.set('lat', String(proximity.latitude));
-            params.set('lon', String(proximity.longitude));
-            const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, {
-              signal: controller.signal,
-            });
-            if (!response.ok) throw new Error(`OpenStreetMap search failed (${response.status}).`);
-            return photonSuggestions(await response.json() as unknown, searchScope);
-          })
-          .then((suggestions) => {
-            if (!controller.signal.aborted) setSearchResults(suggestions ?? []);
-          })
-          .catch((error: unknown) => {
-            if (controller.signal.aborted && !searchTimedOut) return;
-            setSearchError(searchTimedOut
-              ? 'Location search timed out. Try again.'
-              : error instanceof Error
-                ? error.message
-                : 'Could not search locations. Check your connection and try again.');
-            setSearchResults([]);
-          })
-          .finally(() => {
-            if (searchRequestTimeout !== null) clearTimeout(searchRequestTimeout);
-            if (!controller.signal.aborted || searchTimedOut) setSearchingPlaces(false);
-          });
-        return;
-      }
-
-      if (hasSignedInUser) {
-          const sessionToken = nativePlaceSessionToken.current ?? newPlaceSessionToken();
-          nativePlaceSessionToken.current = sessionToken;
-          void apiRequest<{
-            suggestions: { id: string; label: string; detail: string }[];
-          }>('/maps/places/autocomplete', {
-            method: 'POST',
-            signal: controller.signal,
-            body: JSON.stringify({ input: query, scope: searchScope, sessionToken }),
-          })
-            .then(({ suggestions }) => {
-              if (controller.signal.aborted) return;
-              setSearchResults(suggestions.map((suggestion) => ({
-                id: suggestion.id,
-                label: suggestion.label,
-                detail: suggestion.detail,
-                country: searchScope === 'Pakistan' ? 'Pakistan' : '',
-                point: null,
-                googlePlaceId: suggestion.id,
-              })));
-            })
-            .catch((error: unknown) => {
-              if (controller.signal.aborted) return;
-              setSearchError(error instanceof Error
-                ? error.message
-                : 'Could not search Google Maps places. Check server key and API settings.');
-              setSearchResults([]);
-            })
-            .finally(() => {
-              if (!controller.signal.aborted) setSearchingPlaces(false);
-            });
-          return;
-      }
-
-      const params = new URLSearchParams({ q: query, limit: '10', lang: 'en' });
-      if (searchScope === 'Pakistan') params.set('bbox', PAKISTAN_SEARCH_BOUNDS);
+      searchRequestTimeout = setTimeout(() => {
+        searchTimedOut = true;
+        controller.abort();
+      }, 15000);
       const searchCenter = searchField === 'destination' ? pickup : destination;
-      if (searchCenter) {
-        params.set('lat', String(searchCenter.latitude));
-        params.set('lon', String(searchCenter.longitude));
-      }
-      void fetch(`https://photon.komoot.io/api/?${params.toString()}`, { signal: controller.signal })
-        .then(async (response) => {
-          if (!response.ok) throw new Error(`Place search failed (${response.status}).`);
-          return await response.json() as unknown;
-        })
-        .then((data) => setSearchResults(photonSuggestions(data, searchScope)))
-        .catch((error: unknown) => {
+      const proximity = searchCenter ?? { latitude: region.latitude, longitude: region.longitude };
+      void searchTomTomLocations(query, searchScope, proximity, controller.signal)
+        .then(async (suggestions) => {
           if (controller.signal.aborted) return;
-          setSearchError(error instanceof Error
-            ? error.message
-            : 'Could not search places. Check your connection and try again.');
+          if (suggestions.length > 0) return suggestions;
+          const params = new URLSearchParams({ q: query, limit: '10', lang: 'en' });
+          if (searchScope === 'Pakistan') params.set('bbox', PAKISTAN_SEARCH_BOUNDS);
+          params.set('lat', String(proximity.latitude));
+          params.set('lon', String(proximity.longitude));
+          const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, {
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`OpenStreetMap search failed (${response.status}).`);
+          return photonSuggestions(await response.json() as unknown, searchScope);
+        })
+        .then((suggestions) => {
+          if (!controller.signal.aborted) setSearchResults(suggestions ?? []);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted && !searchTimedOut) return;
+          setSearchError(searchTimedOut
+            ? 'Location search timed out. Try again.'
+            : error instanceof Error
+              ? error.message
+              : 'Could not search locations. Check your connection and try again.');
           setSearchResults([]);
         })
         .finally(() => {
-          if (!controller.signal.aborted) setSearchingPlaces(false);
+          if (searchRequestTimeout !== null) clearTimeout(searchRequestTimeout);
+          if (!controller.signal.aborted || searchTimedOut) setSearchingPlaces(false);
         });
     }, 450);
 
@@ -836,7 +719,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
       if (searchRequestTimeout !== null) clearTimeout(searchRequestTimeout);
       controller.abort();
     };
-  }, [destination, hasSignedInUser, pickup, region.latitude, region.longitude, searchField, searchQuery, searchScope]);
+  }, [destination, pickup, region.latitude, region.longitude, searchField, searchQuery, searchScope]);
 
   const updateSuggestedFare = useCallback((
     nextPickup: Coordinate | null,
@@ -865,30 +748,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     let label = '';
     let lookupError = '';
     try {
-      if (Platform.OS === 'web') {
-        label = await reverseMapboxGeocode(point);
-      } else if (hasSignedInUser) {
-        const response = await apiRequest<{ address: string }>('/maps/geocode/reverse', {
-          method: 'POST',
-          body: JSON.stringify({ point }),
-        });
-        label = response.address;
-      }
+      label = await reverseMapboxGeocode(point);
     } catch (error: unknown) {
       lookupError = error instanceof Error ? error.message : 'Reverse geocoding failed.';
-    }
-    if (Platform.OS !== 'web' && !label) {
-      try {
-        const [address] = await Location.reverseGeocodeAsync(point);
-        label = formatAddress(address);
-      } catch (error: unknown) {
-        lookupError = error instanceof Error ? error.message : 'Could not resolve this map location.';
-      }
     }
     if (field === 'pickup') setPickupAddress(label || `Address unavailable · ${coordinatesLabel(point)}`);
     else setDestinationAddress(label || `Address unavailable · ${coordinatesLabel(point)}`);
     setAddressError(label ? '' : lookupError || 'Could not find a street address; the map coordinates are saved.');
-  }, [hasSignedInUser]);
+  }, []);
 
   const locateCurrentPosition = useCallback(async (
     requestPermission = true,
@@ -984,7 +851,6 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     setSearchResults([]);
     setSearchingPlaces(false);
     setSearchError('');
-    nativePlaceSessionToken.current = null;
   };
 
   const beginMapPick = () => {
@@ -1030,36 +896,11 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     setMapPickAddress('');
   };
 
-  const selectPlace = async (place: PlaceSuggestion) => {
+  const selectPlace = (place: PlaceSuggestion) => {
     if (!searchField) return;
     const field = searchField;
     let selectedPoint = place.point;
     let selectedLabel = place.label;
-
-    if (place.googlePlaceId) {
-      setSearchingPlaces(true);
-      try {
-        const sessionToken = nativePlaceSessionToken.current;
-        if (!sessionToken) throw new Error('Place search expired. Search again to choose this result.');
-        const selected = await apiRequest<{ label: string; point: Coordinate }>(
-          '/maps/places/details',
-          {
-            method: 'POST',
-            body: JSON.stringify({ placeId: place.googlePlaceId, sessionToken }),
-          },
-        );
-        if (!isCoordinate(selected.point) || typeof selected.label !== 'string') {
-          throw new Error('Google Maps returned invalid place details.');
-        }
-        selectedPoint = selected.point;
-        selectedLabel = selected.label || place.label;
-      } catch (error: unknown) {
-        setSearchError(error instanceof Error ? error.message : 'Could not load Google place details.');
-        setSearchingPlaces(false);
-        nativePlaceSessionToken.current = null;
-        return;
-      }
-    }
     if (!selectedPoint) {
       setSearchError('This search result did not include a usable location.');
       setSearchingPlaces(false);
@@ -1081,7 +922,6 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     } else {
       focusMap(selectedPoint);
     }
-    nativePlaceSessionToken.current = null;
     Keyboard.dismiss();
     setSearchField(null);
     setSearchQuery('');
@@ -1164,7 +1004,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         setRides(nextRides);
         setActiveRideId(savedRide.id);
         try {
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextRides));
+          await AsyncStorage.setItem(RIDES_STORAGE_KEY, JSON.stringify(nextRides));
           setStorageError('');
         } catch (error: unknown) {
           const detail = error instanceof Error ? error.message : 'Device storage is unavailable.';
@@ -1216,7 +1056,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         ? { ...item, offer: updatedOffer }
         : item);
       try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextRides));
+        await AsyncStorage.setItem(RIDES_STORAGE_KEY, JSON.stringify(nextRides));
         setStorageError('');
       } catch (error: unknown) {
         const detail = error instanceof Error ? error.message : 'Device storage is unavailable.';
@@ -1237,7 +1077,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         : item));
       try {
         await AsyncStorage.setItem(
-          STORAGE_KEY,
+          RIDES_STORAGE_KEY,
           JSON.stringify(rides.map((item) => item.id === ride.id
             ? { ...item, offer: updatedOffer }
             : item)),
@@ -1609,7 +1449,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             color={COLORS.ink}
           />
         </Pressable>
-        {(Platform.OS !== 'web' || MAPBOX_WEB_CONFIGURED) ? (
+        {Platform.OS === 'web' && MAPBOX_CONFIGURED ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Change map type from ${mapType}`}
@@ -1867,9 +1707,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             ))
           )}
           <Text style={styles.searchAttribution}>
-            {Platform.OS === 'web'
-              ? 'Search by TomTom · fallback data © OpenStreetMap contributors'
-              : hasSignedInUser ? 'Place search by Google Maps Platform' : 'Search by Photon · Data © OpenStreetMap contributors'}
+            Search by TomTom · fallback data © OpenStreetMap contributors
           </Text>
         </ScrollView>
       </View>
@@ -2059,6 +1897,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   : 'Driver accepted · waiting for live location'}
               </Text>
             </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => openRideChat(ride.id)}
+              style={styles.rideChatButton}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={17} color={COLORS.white} />
+              <Text style={styles.rideChatButtonText}>Chat with your driver</Text>
+            </Pressable>
           </View>
         ) : !cloudRide ? (
           <Text style={styles.noDrivers}>
@@ -2373,7 +2219,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                 </Text>
                 <Text style={styles.fareEstimateNote}>
                   {Platform.OS === 'web'
-                    ? MAPBOX_WEB_CONFIGURED
+                    ? MAPBOX_CONFIGURED
                       ? 'Mapbox road route'
                       : 'Approximate direct distance; Mapbox route unavailable'
                     : 'Direct-distance estimate'} · {fareDistanceKm.toFixed(1)} km · fare estimate only.
@@ -2673,6 +2519,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                       ? 'Live driver location · updates while the driver app is open and location is enabled.'
                       : 'Waiting for a fresh driver location. Updates require the driver app to stay open with location enabled.'}
                   </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => openRideChat(ride.id)}
+                    style={styles.tripRideChatButton}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.green} />
+                    <Text style={styles.tripRideChatText}>Message your driver</Text>
+                  </Pressable>
                   {renderRideReport(ride.id)}
                 </View>
               ) : ride.cloud && rideStatuses[ride.id]?.status === 'completed' ? (
@@ -2764,7 +2618,11 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
   );
 
   const renderProfileScreen = () => (
-    <View style={styles.secondaryScreen}>
+    <ScrollView
+      style={styles.secondaryScreen}
+      contentContainerStyle={styles.profileScreenContent}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.profilePageHeading}>
         <Text style={styles.profilePageEyebrow}>YOUR SAWAARI</Text>
         <Text style={styles.secondaryTitle}>Profile & preferences</Text>
@@ -2786,7 +2644,20 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         </View>
         <Ionicons name="sparkles" size={19} color="#B5F1DF" />
       </View>
-      <AccountPanel />
+      <AccountPanel
+        onAccountDeleted={() => {
+          setRides([]);
+          setActiveRideId(null);
+          setStorageError('');
+        }}
+      />
+      <View style={styles.profileLegalLinks}>
+        <Link href="/privacy" style={styles.profileLegalLink}>Privacy Policy</Link>
+        <Text style={styles.profileLegalSeparator}>·</Text>
+        <Link href="/terms" style={styles.profileLegalLink}>Terms & Conditions</Link>
+        <Text style={styles.profileLegalSeparator}>·</Text>
+        <Link href="/delete-account" style={styles.profileLegalLink}>Delete account</Link>
+      </View>
       <View style={styles.profileMenu}>
         <Pressable
           accessibilityRole="button"
@@ -2860,7 +2731,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
           router.navigate('/profile');
         }}
       />
-    </View>
+    </ScrollView>
   );
 
   return (
@@ -2871,6 +2742,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         {screen === 'Trips' && renderTripsScreen()}
         {screen === 'Profile' && renderProfileScreen()}
       </View>
+      <RideChatModal
+        visible={rideChatVisible}
+        onClose={() => setRideChatVisible(false)}
+        requestId={rideChatRequestId}
+        participantName={rideChatRequestId
+          ? rideStatuses[rideChatRequestId]?.driver_name || 'Your driver'
+          : 'Your driver'}
+      />
     </SafeAreaView>
   );
 }
@@ -3566,6 +3445,7 @@ const styles = StyleSheet.create({
   requestButtonPressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
   requestButtonText: { color: COLORS.white, fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
   secondaryScreen: { flex: 1, paddingHorizontal: 20, paddingTop: 19, backgroundColor: COLORS.paper },
+  profileScreenContent: { paddingBottom: 24 },
   secondaryHeader: { marginBottom: 20 },
   profilePageHeading: { marginBottom: 17 },
   profilePageEyebrow: { marginBottom: 7, color: COLORS.green, fontSize: 9, fontWeight: '800', letterSpacing: 1.5 },
@@ -3646,6 +3526,8 @@ const styles = StyleSheet.create({
   driverPlateText: { color: COLORS.ink, fontSize: 10, fontWeight: '900', letterSpacing: 0.6 },
   driverMatchFooter: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 9, borderRadius: 9, backgroundColor: '#EAF1F7' },
   driverMatchText: { flex: 1, color: COLORS.green, fontSize: 10, fontWeight: '700' },
+  rideChatButton: { minHeight: 42, borderRadius: 11, backgroundColor: COLORS.green, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  rideChatButtonText: { color: COLORS.white, fontSize: 11, fontWeight: '800' },
   tripAcceptedDriver: { marginTop: 10, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 12, borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.white },
   tripDriverPhoto: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#E8F4EE' },
   tripDriverCopy: { flex: 1, minWidth: 0, gap: 3 },
@@ -3751,6 +3633,8 @@ const styles = StyleSheet.create({
   acceptDriverOfferText: { color: COLORS.white, fontSize: 11, fontWeight: '900' },
   matchText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
   liveLocationNote: { marginTop: 6, color: COLORS.muted, fontSize: 9, lineHeight: 14 },
+  tripRideChatButton: { minHeight: 39, marginTop: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.green, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  tripRideChatText: { color: COLORS.green, fontSize: 10, fontWeight: '800' },
   nearbyDrivers: { marginTop: 12, padding: 11, borderRadius: 11, backgroundColor: '#F4F7FA', gap: 8 },
   nearbyHeading: { color: COLORS.green, fontSize: 11, fontWeight: '800' },
   nearbyDriver: { flexDirection: 'row', alignItems: 'center', gap: 7 },
@@ -3770,6 +3654,9 @@ const styles = StyleSheet.create({
   profileEyebrow: { marginBottom: 4, color: '#B5F1DF', fontSize: 8, fontWeight: '800', letterSpacing: 1.3 },
   profileName: { color: COLORS.white, fontSize: 13, fontWeight: '800' },
   profileSubtext: { marginTop: 4, color: '#C4D5DA', fontSize: 10, lineHeight: 15 },
+  profileLegalLinks: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingVertical: 8 },
+  profileLegalLink: { color: COLORS.green, fontSize: 10, fontWeight: '700' },
+  profileLegalSeparator: { color: COLORS.muted, fontSize: 10 },
   profileMenu: { marginTop: 14, gap: 8 },
   menuItem: { minHeight: 66, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: '#E7EFED', backgroundColor: COLORS.white, flexDirection: 'row', alignItems: 'center', elevation: 2, shadowColor: '#173A4B', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } },
   menuItemPressed: { opacity: 0.72 },

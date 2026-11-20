@@ -40,7 +40,7 @@ jobs:
       - name: Export production website
         run: npm run build:web
         env:
-          EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY: ${{ secrets.EXPO_PUBLIC_GOOGLE_MAPS_WEB_API_KEY }}
+          EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN: ${{ secrets.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN }}
 
       - name: Configure SSH
         env:
