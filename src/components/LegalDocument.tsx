@@ -45,7 +45,7 @@ const documents: Record<LegalDocumentKind, { title: string; sections: LegalSecti
           'Account, ride, driver-application, and support records are stored on Sawaari’s server and database. Driver documents are kept in private server storage and are not intended to be publicly accessible.',
           'Sawaari uses safeguards such as password hashing, access controls for private documents, and HTTPS in production. No online service can guarantee absolute security.',
           'Sawaari keeps information while it is needed to provide and protect the service. When an account is deleted, account-linked records are removed from active systems. Ride records created by other users may remain; deleted driver accounts are unlinked and their stored driver-location fields are cleared.',
-          'Private driver documents are queued for removal when the account is deleted and retried if file storage is temporarily unavailable. Copies in backups, if any, may remain until those backups expire. Sawaari has not confirmed a fixed backup-retention period; this must be checked against the VPS backup configuration before publication.',
+          'Sawaari does not currently configure automated backups for the production database or private driver-document storage. We have not verified whether the hosting provider creates infrastructure-level snapshots or how long any such copies are retained. Account deletion removes data from active application systems; provider-managed copies, if any, may be subject to the provider’s retention practices.',
         ],
       },
       {
@@ -124,13 +124,6 @@ export default function LegalDocument({ kind }: { kind: LegalDocumentKind }) {
       <Text style={styles.brand}>SAWAARI PAKISTAN</Text>
       <Text accessibilityRole="header" style={styles.title}>{document.title}</Text>
       <Text style={styles.subtitle}>Lahore, Pakistan</Text>
-      <View style={styles.draftNotice}>
-        <Text style={styles.draftTitle}>Review before public release</Text>
-        <Text style={styles.draftText}>
-          Confirm these disclosures against your live VPS backup settings and actual business practices,
-          and obtain appropriate legal review before submitting this policy to Google Play.
-        </Text>
-      </View>
       {document.sections.map((section) => (
         <View key={section.title} style={styles.section}>
           <Text accessibilityRole="header" style={styles.sectionTitle}>{section.title}</Text>
@@ -156,9 +149,6 @@ const styles = StyleSheet.create({
   brand: { color: '#0B786F', fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
   title: { color: '#12273A', fontSize: 28, fontWeight: '800' },
   subtitle: { color: '#63798A', fontSize: 14 },
-  draftNotice: { padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#E8C994', backgroundColor: '#FFF6E8', gap: 6 },
-  draftTitle: { color: '#704814', fontSize: 14, fontWeight: '800' },
-  draftText: { color: '#775F3B', fontSize: 13, lineHeight: 20 },
   section: { gap: 8 },
   sectionTitle: { color: '#12273A', fontSize: 17, fontWeight: '800' },
   paragraph: { color: '#435A6B', fontSize: 14, lineHeight: 22 },
