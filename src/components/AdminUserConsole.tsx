@@ -162,6 +162,11 @@ export default function AdminUserConsole({
   const [restrictionReason, setRestrictionReason] = useState('');
   const [restrictionBusy, setRestrictionBusy] = useState(false);
   const [restrictionError, setRestrictionError] = useState('');
+  const [deletePromptOpen, setDeletePromptOpen] = useState(false);
+  const [deleteConfirmationEmail, setDeleteConfirmationEmail] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deletionNotice, setDeletionNotice] = useState<{ message: string; warning: boolean } | null>(null);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -234,6 +239,9 @@ export default function AdminUserConsole({
     setRestrictionDuration('24');
     setRestrictionReason(user.current_restriction_reason ?? '');
     setRestrictionError('');
+    setDeletePromptOpen(false);
+    setDeleteConfirmationEmail('');
+    setDeleteError('');
     void loadUserHistory(user);
   };
 
@@ -245,6 +253,50 @@ export default function AdminUserConsole({
     setHistoryError('');
     setMapRideId(null);
     setRestrictionError('');
+    setDeletePromptOpen(false);
+    setDeleteConfirmationEmail('');
+    setDeleteError('');
+  };
+
+  const deleteProfileUser = async () => {
+    if (!profileUser) return;
+    if (deleteConfirmationEmail.trim().toLowerCase() !== profileUser.email.toLowerCase()) {
+      setDeleteError('The email you entered does not match this account.');
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      const result = await adminApi<{
+        deleted: boolean;
+        storage_cleanup_pending: boolean;
+      }>(`/api/admin/users/${encodeURIComponent(profileUser.user_id)}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ confirmation_email: deleteConfirmationEmail.trim() }),
+      });
+      if (result.deleted !== true || typeof result.storage_cleanup_pending !== 'boolean') {
+        throw new Error('The server did not confirm account deletion.');
+      }
+      const deletedUserId = profileUser.user_id;
+      setUsers((current) => current.filter((user) => user.user_id !== deletedUserId));
+      setTotal((current) => Math.max(0, current - 1));
+      setDeletionNotice({
+        message: result.storage_cleanup_pending
+          ? 'The account and linked database data were deleted. Private files could not all be removed immediately and remain queued for automatic cleanup.'
+          : 'The account, linked personal data, and private driver files were deleted.',
+        warning: result.storage_cleanup_pending,
+      });
+      closeProfile();
+      if (users.length === 1 && offset > 0) {
+        setOffset((current) => Math.max(0, current - PAGE_SIZE));
+      }
+    } catch (deleteRequestError: unknown) {
+      setDeleteError(deleteRequestError instanceof Error
+        ? deleteRequestError.message
+        : 'Could not delete this account.');
+    } finally {
+      setDeleteBusy(false);
+    }
   };
 
   const applyRestriction = async (permanent: boolean) => {
@@ -507,6 +559,21 @@ export default function AdminUserConsole({
             </Pressable>
           </View>
         ) : null}
+        {deletionNotice ? (
+          <View style={[styles.deletionNotice, deletionNotice.warning && styles.deletionWarning]}>
+            <Ionicons
+              name={deletionNotice.warning ? 'warning-outline' : 'checkmark-circle-outline'}
+              size={17}
+              color={deletionNotice.warning ? COLORS.red : COLORS.green}
+            />
+            <Text style={[styles.deletionNoticeText, deletionNotice.warning && styles.deletionWarningText]}>
+              {deletionNotice.message}
+            </Text>
+            <Pressable accessibilityRole="button" onPress={() => setDeletionNotice(null)}>
+              <Ionicons name="close-outline" size={18} color={COLORS.muted} />
+            </Pressable>
+          </View>
+        ) : null}
 
         {loading ? (
           <View style={styles.emptyCard}>
@@ -602,7 +669,7 @@ export default function AdminUserConsole({
     <Modal
       animationType="fade"
       onRequestClose={() => {
-        if (!restrictionBusy) closeProfile();
+        if (!restrictionBusy && !deleteBusy) closeProfile();
       }}
       transparent
       visible={Boolean(profileUser)}
@@ -616,10 +683,10 @@ export default function AdminUserConsole({
             </View>
             <Pressable
               accessibilityRole="button"
-              disabled={restrictionBusy}
+              disabled={restrictionBusy || deleteBusy}
               accessibilityLabel="Close user profile"
               onPress={closeProfile}
-              style={[styles.modalClose, restrictionBusy && styles.historyDisabledButton]}
+              style={[styles.modalClose, (restrictionBusy || deleteBusy) && styles.historyDisabledButton]}
             >
               <Ionicons name="close" size={20} color={COLORS.ink} />
             </Pressable>
@@ -714,6 +781,78 @@ export default function AdminUserConsole({
                 </Pressable>
                 {restrictionError ? <Text style={styles.errorText}>{restrictionError}</Text> : null}
               </View>
+              <View style={styles.deletePanel}>
+                <View style={styles.historyHeading}>
+                  <Text style={styles.deleteTitle}>Permanently delete account</Text>
+                  <Ionicons name="trash-outline" size={17} color={COLORS.red} />
+                </View>
+                <Text style={styles.deleteCopy}>
+                  Deletes this account, its sessions and driver application, and personal data linked only to it.
+                  Rider-created trips are deleted; driver details and live locations are removed from retained trips.
+                  Private driver documents are also removed from secure storage. This cannot be undone.
+                </Text>
+                {!deletePromptOpen ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={deleteBusy || restrictionBusy}
+                    onPress={() => {
+                      setDeletePromptOpen(true);
+                      setDeleteError('');
+                    }}
+                    style={[styles.deleteButton, (deleteBusy || restrictionBusy) && styles.historyDisabledButton]}
+                  >
+                    <Ionicons name="trash-outline" size={15} color={COLORS.white} />
+                    <Text style={styles.restrictButtonText}>Delete account and data</Text>
+                  </Pressable>
+                ) : (
+                  <>
+                    <Text style={styles.restrictionLabel}>
+                      Type {profileUser.email} to confirm
+                    </Text>
+                    <TextInput
+                      accessibilityLabel="Type the account email to confirm permanent deletion"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!deleteBusy}
+                      keyboardType="email-address"
+                      onChangeText={setDeleteConfirmationEmail}
+                      placeholder="Account email"
+                      style={styles.restrictionInput}
+                      value={deleteConfirmationEmail}
+                    />
+                    <View style={styles.deleteActions}>
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={deleteBusy}
+                        onPress={() => {
+                          setDeletePromptOpen(false);
+                          setDeleteConfirmationEmail('');
+                          setDeleteError('');
+                        }}
+                        style={[styles.deleteCancelButton, deleteBusy && styles.historyDisabledButton]}
+                      >
+                        <Text style={styles.deleteCancelText}>Cancel</Text>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={deleteBusy || deleteConfirmationEmail.trim().toLowerCase() !== profileUser.email.toLowerCase()}
+                        onPress={() => void deleteProfileUser()}
+                        style={[
+                          styles.deleteButton,
+                          (deleteBusy || deleteConfirmationEmail.trim().toLowerCase() !== profileUser.email.toLowerCase())
+                            && styles.historyDisabledButton,
+                        ]}
+                      >
+                        {deleteBusy
+                          ? <ActivityIndicator size="small" color={COLORS.white} />
+                          : <Ionicons name="trash-outline" size={15} color={COLORS.white} />}
+                        <Text style={styles.restrictButtonText}>Delete permanently</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+                {deleteError ? <Text style={styles.errorText}>{deleteError}</Text> : null}
+              </View>
               <View style={styles.historyPanel}>
                 <View style={styles.historyHeading}>
                   <Text style={styles.historyTitle}>Ride history</Text>
@@ -779,6 +918,13 @@ const styles = StyleSheet.create({
   profileSummary: { padding: 12, borderWidth: 1, borderColor: COLORS.line, borderRadius: 11, backgroundColor: COLORS.white },
   profileSummaryText: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
   restrictionPanel: { gap: 10, padding: 13, borderWidth: 1, borderColor: COLORS.line, borderRadius: 13, backgroundColor: COLORS.white },
+  deletePanel: { gap: 10, padding: 13, borderWidth: 1, borderColor: '#E8B5B1', borderRadius: 13, backgroundColor: '#FFF8F7' },
+  deleteTitle: { flex: 1, color: COLORS.red, fontSize: 12, fontWeight: '900' },
+  deleteCopy: { color: COLORS.muted, fontSize: 10, lineHeight: 16 },
+  deleteButton: { minHeight: 42, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 10, borderRadius: 9, backgroundColor: COLORS.red },
+  deleteActions: { flexDirection: 'row', gap: 8 },
+  deleteCancelButton: { minHeight: 42, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, borderRadius: 9, backgroundColor: COLORS.line },
+  deleteCancelText: { color: COLORS.ink, fontSize: 10, fontWeight: '900' },
   restrictedBadge: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 20, backgroundColor: '#FBE9E8' },
   restrictedStatusText: { color: COLORS.red, fontSize: 8, fontWeight: '900' },
   restrictionReason: { color: COLORS.ink, fontSize: 11, lineHeight: 16 },
@@ -813,6 +959,10 @@ const styles = StyleSheet.create({
   searchButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 16, borderRadius: 11, backgroundColor: COLORS.lime },
   searchButtonText: { color: COLORS.green, fontSize: 11, fontWeight: '900' },
   errorCard: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 12, borderRadius: 12, backgroundColor: '#FBE9E8' },
+  deletionNotice: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 12, borderRadius: 12, backgroundColor: '#E8F4EA' },
+  deletionNoticeText: { flex: 1, color: COLORS.green, fontSize: 10, lineHeight: 15 },
+  deletionWarning: { backgroundColor: '#FBE9E8' },
+  deletionWarningText: { color: COLORS.red },
   errorText: { flex: 1, color: COLORS.red, fontSize: 10 },
   retryText: { color: COLORS.green, fontSize: 10, fontWeight: '900' },
   emptyCard: { minHeight: 74, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 15, borderWidth: 1, borderColor: COLORS.line, borderRadius: 14, backgroundColor: COLORS.white },

@@ -464,11 +464,18 @@ async function processPrivateFileDeletionQueue() {
   }
 }
 
-async function cleanPrivateFilesAfterAccountDeletion() {
+async function cleanPrivateFilesAfterAccountDeletion(documentPaths = []) {
   try {
     await processPrivateFileDeletionQueue();
+    if (documentPaths.length === 0) return false;
+    const remaining = await pool.query(
+      'select 1 from private_file_deletion_queue where path = any($1::text[]) limit 1',
+      [documentPaths],
+    );
+    return remaining.rowCount > 0;
   } catch (error) {
     console.error('Account deletion succeeded, but private-file cleanup could not run; queued files will be retried:', error);
+    return documentPaths.length > 0;
   }
 }
 
@@ -1142,6 +1149,45 @@ async function route(request, response, url) {
         total: count.rows[0].total,
         limit: requestedLimit,
         offset: requestedOffset,
+      });
+      return;
+    }
+    const adminUserMatch = pathname.match(
+      /^\/api\/admin\/users\/([0-9a-f-]{36})$/i,
+    );
+    if (method === 'DELETE' && adminUserMatch) {
+      const body = await readJson(request);
+      const confirmationEmail = typeof body.confirmation_email === 'string'
+        ? body.confirmation_email.trim().toLowerCase()
+        : '';
+      if (!validEmail(confirmationEmail)) {
+        throw fail('Enter the account email to confirm permanent deletion.');
+      }
+
+      const client = await pool.connect();
+      let deletion = { deleted: false, documentPaths: [] };
+      try {
+        await client.query('begin');
+        const account = await client.query(
+          'select email from app_users where id=$1 for update',
+          [adminUserMatch[1]],
+        );
+        if (!account.rowCount) throw fail('User account not found.', 404);
+        if (account.rows[0].email.toLowerCase() !== confirmationEmail) {
+          throw fail('The confirmation email does not match this user account.', 409);
+        }
+        deletion = await deleteUserAccountInTransaction(client, adminUserMatch[1]);
+        await client.query('commit');
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+      const storageCleanupPending = await cleanPrivateFilesAfterAccountDeletion(deletion.documentPaths);
+      sendJson(response, 200, {
+        deleted: deletion.deleted,
+        storage_cleanup_pending: storageCleanupPending,
       });
       return;
     }
