@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import Busboy from 'busboy';
 import nodemailer from 'nodemailer';
 import pg from 'pg';
+import { searchPhotonLocations } from './photon-search.mjs';
 import { searchTomTomLocations } from './tomtom-search.mjs';
 
 const { Pool } = pg;
@@ -822,6 +823,35 @@ async function route(request, response, url) {
       apiKey: config.tomtomSearchApiKey,
     });
     sendJson(response, 200, { suggestions });
+    return;
+  }
+
+  if (method === 'POST' && pathname === '/api/maps/openstreetmap-search') {
+    if (!originAllowed(request)) throw fail('Request origin is not allowed.', 403);
+    const clientAddress = request.socket.remoteAddress ?? 'unknown';
+    enforceMapsRequestLimit(clientAddress, 'photon-location-search', 90);
+    const body = await readJson(request);
+    const query = typeof body.query === 'string' ? body.query.trim() : '';
+    if (query.length < 3 || query.length > 200
+      || !['Pakistan', 'Worldwide'].includes(body.scope)
+      || (body.proximity !== null && body.proximity !== undefined
+        && !validMapsPoint(body.proximity))) {
+      throw fail('Enter a search of 3 to 200 characters and a valid map search scope.');
+    }
+
+    try {
+      const results = await searchPhotonLocations({
+        query,
+        scope: body.scope,
+        proximity: body.proximity,
+      });
+      sendJson(response, 200, results);
+    } catch (error) {
+      console.error('OpenStreetMap location search failed:', error);
+      sendJson(response, 502, {
+        error: error instanceof Error ? error.message : 'OpenStreetMap search is temporarily unavailable.',
+      });
+    }
     return;
   }
 

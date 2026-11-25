@@ -686,15 +686,26 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
         .then(async (suggestions) => {
           if (controller.signal.aborted) return;
           if (suggestions.length > 0) return suggestions;
-          const params = new URLSearchParams({ q: query, limit: '10', lang: 'en' });
-          if (searchScope === 'Pakistan') params.set('bbox', PAKISTAN_SEARCH_BOUNDS);
-          params.set('lat', String(proximity.latitude));
-          params.set('lon', String(proximity.longitude));
-          const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, {
-            signal: controller.signal,
-          });
-          if (!response.ok) throw new Error(`OpenStreetMap search failed (${response.status}).`);
-          return photonSuggestions(await response.json() as unknown, searchScope);
+          let photonPayload: unknown;
+          if (Platform.OS === 'web' && __DEV__) {
+            const params = new URLSearchParams({ q: query, limit: '10', lang: 'en' });
+            if (searchScope === 'Pakistan') params.set('bbox', PAKISTAN_SEARCH_BOUNDS);
+            params.set('lat', String(proximity.latitude));
+            params.set('lon', String(proximity.longitude));
+            const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, {
+              signal: controller.signal,
+            });
+            if (!response.ok) throw new Error(`OpenStreetMap search failed (${response.status}).`);
+            photonPayload = await response.json() as unknown;
+          } else {
+            photonPayload = await apiRequest<unknown>('/maps/openstreetmap-search', {
+              method: 'POST',
+              signal: controller.signal,
+              auth: false,
+              body: JSON.stringify({ query, scope: searchScope, proximity }),
+            });
+          }
+          return photonSuggestions(photonPayload, searchScope);
         })
         .then((suggestions) => {
           if (!controller.signal.aborted) setSearchResults(suggestions ?? []);
