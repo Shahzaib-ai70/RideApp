@@ -1654,7 +1654,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             onPress={() => beginMapPick(searchField)}
             style={styles.searchMapPinButton}
           >
-            <Ionicons name="location" size={19} color={COLORS.green} />
+            <Ionicons name="map-outline" size={19} color={COLORS.green} />
           </Pressable>
         </View>
         <View style={styles.searchScopeRow}>
@@ -2042,11 +2042,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                     </Text>
                     {pickup ? <Text style={styles.routeCoordinates}>{coordinatesLabel(pickup)}</Text> : null}
                   </View>
-                  {pickup ? (
-                    <Ionicons name="checkmark-circle" size={19} color={COLORS.green} />
-                  ) : (
-                    <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
-                  )}
+                  <Ionicons name="chevron-forward" size={16} color={COLORS.muted} />
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
@@ -2054,7 +2050,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   onPress={() => beginMapPick('pickup')}
                   style={styles.routePinButton}
                 >
-                  <Ionicons name="location-outline" size={18} color={COLORS.green} />
+                  <Ionicons name="map-outline" size={18} color={COLORS.green} />
                 </Pressable>
               </View>
               <View style={styles.routeDivider} />
@@ -2080,11 +2076,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                       ? <Text style={styles.routeCoordinates}>{coordinatesLabel(destination)}</Text>
                       : null}
                   </View>
-                  {destination ? (
-                    <Ionicons name="checkmark-circle" size={19} color={COLORS.green} />
-                  ) : (
-                    <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
-                  )}
+                  <Ionicons name="chevron-forward" size={16} color={COLORS.muted} />
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
@@ -2092,7 +2084,7 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
                   onPress={() => beginMapPick('destination')}
                   style={styles.routePinButton}
                 >
-                  <Ionicons name="location-outline" size={18} color={COLORS.green} />
+                  <Ionicons name="map-outline" size={18} color={COLORS.green} />
                 </Pressable>
               </View>
             </View>
@@ -3088,12 +3080,19 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
   searchMapPinButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
+    width: 40,
+    height: 40,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E2F5EF',
+    backgroundColor: '#F6FAF8',
+    elevation: 0,
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
   },
   searchInput: {
     flex: 1,
@@ -3298,15 +3297,15 @@ const styles = StyleSheet.create({
   cashText: { color: COLORS.green, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
   routeCard: {
     flexDirection: 'row',
-    minHeight: 104,
+    minHeight: 116,
     backgroundColor: COLORS.white,
-    borderRadius: 19,
+    borderRadius: 17,
     borderWidth: 1,
     borderColor: COLORS.line,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  routeRail: { width: 22, alignItems: 'center', paddingTop: 18, paddingBottom: 16 },
+  routeRail: { width: 22, alignItems: 'center', paddingTop: 20, paddingBottom: 18 },
   routeCircle: {
     width: 9,
     height: 9,
@@ -3319,33 +3318,45 @@ const styles = StyleSheet.create({
   routeFields: { flex: 1 },
   routeField: {
     flex: 1,
-    minHeight: 43,
-    paddingHorizontal: 10,
+    minHeight: 48,
+    paddingHorizontal: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 13,
+    borderRadius: 11,
   },
   routeFieldMain: {
     flex: 1,
     minWidth: 0,
-    minHeight: 43,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    elevation: 0,
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
   },
   routePinButton: {
-    width: 34,
-    height: 34,
-    marginLeft: 4,
-    borderRadius: 11,
+    width: 40,
+    height: 40,
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E2F5EF',
+    backgroundColor: '#F6FAF8',
+    elevation: 0,
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
   },
-  routeFieldCopy: { flex: 1, paddingRight: 8 },
-  routeCaption: { fontSize: 8, fontWeight: '800', letterSpacing: 1.2, color: COLORS.green },
-  routeValue: { marginTop: 4, fontSize: 12, fontWeight: '600', color: COLORS.ink },
-  routeCoordinates: { marginTop: 2, color: COLORS.muted, fontSize: 8, fontWeight: '500' },
+  routeFieldCopy: { flex: 1, minWidth: 0, paddingRight: 8 },
+  routeCaption: { fontSize: 9, fontWeight: '800', letterSpacing: 1, color: COLORS.green },
+  routeValue: { marginTop: 4, fontSize: 13, fontWeight: '700', color: COLORS.ink },
+  routeCoordinates: { marginTop: 3, color: COLORS.muted, fontSize: 9, fontWeight: '500' },
   routePlaceholder: { fontWeight: '500', color: '#8996A1' },
   routeDivider: { height: 1, marginLeft: 9, backgroundColor: '#E9EFED' },
   routeOptionsCard: {
