@@ -864,12 +864,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
     setSearchError('');
   };
 
-  const beginMapPick = () => {
-    if (!searchField) return;
+  const beginMapPick = (field: RouteField | null = searchField, initialAddress?: string) => {
+    if (!field) return;
     Keyboard.dismiss();
-    setMapPickField(searchField);
+    setMapPickField(field);
     setMapPickPoint(null);
-    setMapPickAddress(searchQuery.trim());
+    setMapPickAddress(initialAddress ?? (field === searchField
+      ? searchQuery.trim()
+      : field === 'pickup' ? pickupAddress : destinationAddress));
     setSearchField(null);
     setSearchQuery('');
     setSearchResults([]);
@@ -1646,6 +1648,14 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               <Ionicons name="close-circle" size={19} color={COLORS.muted} />
             </Pressable>
           ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Pin ${searchField} location on map`}
+            onPress={() => beginMapPick(searchField)}
+            style={styles.searchMapPinButton}
+          >
+            <Ionicons name="location" size={19} color={COLORS.green} />
+          </Pressable>
         </View>
         <View style={styles.searchScopeRow}>
           {(['Pakistan', 'Worldwide'] as const).map((scope) => {
@@ -1671,14 +1681,6 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
             );
           })}
         </View>
-        <Pressable
-          accessibilityRole="button"
-          onPress={beginMapPick}
-          style={styles.searchMapPickButton}
-        >
-          <Ionicons name="locate-outline" size={17} color={COLORS.green} />
-          <Text style={styles.searchMapPickText}>Can’t find the exact address? Pick it on the map</Text>
-        </Pressable>
         <ScrollView
           style={styles.searchResults}
           keyboardShouldPersistTaps="handled"
@@ -2025,54 +2027,74 @@ export default function SawaariApp({ screen }: { screen: Screen }) {
               <View style={styles.routeSquare} />
             </View>
             <View style={styles.routeFields}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Search pickup address"
-                accessibilityHint="Opens place search for the pickup address."
-                onPress={() => beginPlaceSearch('pickup')}
-                style={styles.routeField}
-              >
-                <View style={styles.routeFieldCopy}>
-                  <Text style={styles.routeCaption}>PICKUP</Text>
-                  <Text numberOfLines={1} style={[styles.routeValue, !pickup && styles.routePlaceholder]}>
-                    {pickup ? addressOrCoordinates(pickupAddress, pickup) : 'Search for pickup address'}
-                  </Text>
-                  {pickup ? <Text style={styles.routeCoordinates}>{coordinatesLabel(pickup)}</Text> : null}
-                </View>
-                {pickup ? (
-                  <Ionicons name="checkmark-circle" size={19} color={COLORS.green} />
-                ) : (
-                  <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
-                )}
-              </Pressable>
+              <View style={styles.routeField}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Search pickup address"
+                  accessibilityHint="Opens place search for the pickup address."
+                  onPress={() => beginPlaceSearch('pickup')}
+                  style={styles.routeFieldMain}
+                >
+                  <View style={styles.routeFieldCopy}>
+                    <Text style={styles.routeCaption}>PICKUP</Text>
+                    <Text numberOfLines={1} style={[styles.routeValue, !pickup && styles.routePlaceholder]}>
+                      {pickup ? addressOrCoordinates(pickupAddress, pickup) : 'Search for pickup address'}
+                    </Text>
+                    {pickup ? <Text style={styles.routeCoordinates}>{coordinatesLabel(pickup)}</Text> : null}
+                  </View>
+                  {pickup ? (
+                    <Ionicons name="checkmark-circle" size={19} color={COLORS.green} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+                  )}
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Pin pickup on map"
+                  onPress={() => beginMapPick('pickup')}
+                  style={styles.routePinButton}
+                >
+                  <Ionicons name="location-outline" size={18} color={COLORS.green} />
+                </Pressable>
+              </View>
               <View style={styles.routeDivider} />
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Search destination address"
-                accessibilityHint="Opens place search for the destination address."
-                onPress={() => beginPlaceSearch('destination')}
-                style={styles.routeField}
-              >
-                <View style={styles.routeFieldCopy}>
-                  <Text style={styles.routeCaption}>DESTINATION</Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.routeValue, !destination && styles.routePlaceholder]}
-                  >
+              <View style={styles.routeField}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Search destination address"
+                  accessibilityHint="Opens place search for the destination address."
+                  onPress={() => beginPlaceSearch('destination')}
+                  style={styles.routeFieldMain}
+                >
+                  <View style={styles.routeFieldCopy}>
+                    <Text style={styles.routeCaption}>DESTINATION</Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.routeValue, !destination && styles.routePlaceholder]}
+                    >
+                      {destination
+                        ? addressOrCoordinates(destinationAddress, destination)
+                        : 'Search for destination address'}
+                    </Text>
                     {destination
-                      ? addressOrCoordinates(destinationAddress, destination)
-                      : 'Search for destination address'}
-                  </Text>
-                  {destination
-                    ? <Text style={styles.routeCoordinates}>{coordinatesLabel(destination)}</Text>
-                    : null}
-                </View>
-                {destination ? (
-                  <Ionicons name="checkmark-circle" size={19} color={COLORS.green} />
-                ) : (
-                  <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
-                )}
-              </Pressable>
+                      ? <Text style={styles.routeCoordinates}>{coordinatesLabel(destination)}</Text>
+                      : null}
+                  </View>
+                  {destination ? (
+                    <Ionicons name="checkmark-circle" size={19} color={COLORS.green} />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+                  )}
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Pin destination on map"
+                  onPress={() => beginMapPick('destination')}
+                  style={styles.routePinButton}
+                >
+                  <Ionicons name="location-outline" size={18} color={COLORS.green} />
+                </Pressable>
+              </View>
             </View>
           </View>
           {pickup && destination ? (
@@ -3065,6 +3087,14 @@ const styles = StyleSheet.create({
     gap: 10,
     backgroundColor: COLORS.white,
   },
+  searchMapPinButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E2F5EF',
+  },
   searchInput: {
     flex: 1,
     minWidth: 0,
@@ -3089,19 +3119,6 @@ const styles = StyleSheet.create({
   searchScopeButtonSelected: { backgroundColor: '#0B786F' },
   searchScopeText: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
   searchScopeTextSelected: { color: COLORS.white },
-  searchMapPickButton: {
-    minHeight: 42,
-    marginTop: 7,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: COLORS.line,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: COLORS.white,
-  },
-  searchMapPickText: { flex: 1, color: COLORS.green, fontSize: 11, fontWeight: '700' },
   searchResults: { flex: 1, marginTop: 8 },
   searchLoading: { marginTop: 28 },
   searchMessage: {
@@ -3155,12 +3172,12 @@ const styles = StyleSheet.create({
   bookingSheet: {
     flexGrow: 0,
     flexShrink: 1,
-    maxHeight: '68%',
+    maxHeight: '58%',
     marginHorizontal: 12,
-    marginBottom: 10,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 16,
+    marginBottom: 6,
+    paddingHorizontal: 15,
+    paddingTop: 14,
+    paddingBottom: 10,
     borderRadius: 25,
     borderWidth: 1,
     borderColor: '#FFFFFF',
@@ -3306,8 +3323,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     borderRadius: 13,
+  },
+  routeFieldMain: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 43,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  routePinButton: {
+    width: 34,
+    height: 34,
+    marginLeft: 4,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E2F5EF',
   },
   routeFieldCopy: { flex: 1, paddingRight: 8 },
   routeCaption: { fontSize: 8, fontWeight: '800', letterSpacing: 1.2, color: COLORS.green },
